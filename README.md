@@ -1,5 +1,5 @@
 # Slem
-Нужные библиотеки  
+# Библиотеки которые надо скачать)) 
   ●pip install pyaudio faster-whisper openwakeword numpy  
   PyAudio — для захвата звука с микрофона  
   Faster-Whisper — для распознавания речи  
