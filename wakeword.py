@@ -9,10 +9,11 @@ from collections import deque
 
 class VoiceWakeWord:
     """
-    Детектор голосовой активации с защитой от ложных срабатываний.
+    Детектор голосовой активации.
+    Исправленная версия с нормальным VAD.
     """
     
-    def __init__(self, wake_word="джарвис", sensitivity=0.7, debug=False):
+    def __init__(self, wake_word="джарвис", sensitivity=0.6, debug=False):
         self.wake_word = wake_word.lower()
         self.sensitivity = sensitivity
         self.debug = debug
@@ -25,83 +26,58 @@ class VoiceWakeWord:
         
         # Модель
         self.custom_model = None
-        self.custom_threshold = 0.75  # ВЫСОКИЙ порог по умолчанию
+        self.custom_threshold = 0.6
         self.load_custom_model()
-        
-        # Если модель загружена, но порог низкий — поднимаем
-        if self.custom_model and self.custom_threshold < 0.7:
-            self.custom_threshold = 0.75
         
         # Буферы
         self.audio_buffer = deque(maxlen=int(self.RATE / self.CHUNK * 2.0))
         self.energy_history = deque(maxlen=100)
         
-        # ЖЁСТКИЕ ПАРАМЕТРЫ VAD
-        self.MIN_VOICE_FRAMES = 12      # Минимум 0.75 сек речи (было 5)
-        self.MAX_SILENCE_FRAMES = 15    # Максимум 0.9 сек тишины (было 20)
-        self.SPEECH_ENERGY_MULTIPLIER = 3.5  # Выше порог речи (было 2.5)
-        
-        # Защита от ложных срабатываний
-        self.MIN_SEGMENT_LENGTH = 8000   # Минимум 0.5 сек аудио
-        self.MAX_SEGMENT_LENGTH = 48000  # Максимум 3 сек аудио
+        # Параметры VAD — ИСПРАВЛЕНО
+        self.speech_energy_multiplier = 4.0  # Порог речи = шум * 4 (было 3.5)
+        self.min_speech_frames = 8           # Минимум 0.5 сек речи
+        self.max_speech_frames = 50          # Максимум 3 сек речи (отсекаем длинное)
+        self.silence_frames_stop = 15        # 1 сек тишины = конец слова
         
         # Состояние
-        self.voice_segment = []
         self.running = False
         self.audio = None
         self.stream = None
         self.listen_thread = None
         self.detection_callbacks = []
         
-        # Кулдаун
         self.last_detection_time = 0
-        self.cooldown_period = 2.5  # 2.5 секунды между срабатываниями
-        
-        # Счётчик последовательных обнаружений для фильтрации
-        self.consecutive_detections = 0
-        self.REQUIRED_CONSECUTIVE = 1  # Сколько раз подряд нужно обнаружить
-        
-        if self.debug:
-            print("=" * 50)
-            print("РЕЖИМ ОТЛАДКИ АКТИВИРОВАН")
-            print(f"Порог: {self.custom_threshold:.3f}")
-            print("=" * 50)
+        self.cooldown_period = 2.0
         
         if self.custom_model:
-            print(f"✓ Модель для '{self.wake_word}' загружена (порог: {self.custom_threshold:.3f})")
+            print(f"✓ Модель загружена (порог: {self.custom_threshold:.3f})")
         else:
-            print(f"! Модель не найдена. Запустите train_wakeword.py")
+            print("! Модель не найдена. Запустите train_wakeword.py")
     
     def load_custom_model(self):
-        """Загружает модель."""
         model_path = f"models/{self.wake_word}_model.json"
         if os.path.exists(model_path):
             try:
                 with open(model_path, 'r', encoding='utf-8') as f:
                     self.custom_model = json.load(f)
-                # Загружаем сохранённый порог если есть
                 if 'threshold' in self.custom_model:
                     self.custom_threshold = self.custom_model['threshold']
                 return True
-            except Exception as e:
-                print(f"Ошибка загрузки: {e}")
+            except:
+                pass
         return False
     
     def save_custom_model(self):
-        """Сохраняет модель с порогом."""
         os.makedirs("models", exist_ok=True)
         model_path = f"models/{self.wake_word}_model.json"
         try:
-            # Сохраняем порог вместе с моделью
             self.custom_model['threshold'] = self.custom_threshold
             with open(model_path, 'w', encoding='utf-8') as f:
                 json.dump(self.custom_model, f, indent=2, ensure_ascii=False)
-            print(f"Модель сохранена: {model_path}")
-        except Exception as e:
-            print(f"Ошибка сохранения: {e}")
+        except:
+            pass
     
     def extract_features(self, audio_segment):
-        """Извлекает признаки из аудио."""
         if len(audio_segment) < 512:
             return None
         
@@ -112,19 +88,13 @@ class VoiceWakeWord:
         
         features = {}
         
-        # Энергетические характеристики
+        # Базовые
+        features['duration'] = len(audio) / self.RATE
         features['rms_energy'] = float(np.sqrt(np.mean(audio**2)))
         features['peak_energy'] = float(np.max(np.abs(audio)))
-        features['energy_std'] = float(np.std(audio**2))
+        features['zcr'] = float(np.sum(np.abs(np.diff(np.sign(audio)))) / (2 * len(audio)))
         
-        # Zero-crossing rate
-        zcr = np.sum(np.abs(np.diff(np.sign(audio)))) / (2 * len(audio))
-        features['zcr'] = float(zcr)
-        
-        # Длительность (важный признак!)
-        features['duration'] = len(audio) / self.RATE
-        
-        # Спектральные характеристики
+        # Спектр
         n_fft = min(1024, len(audio))
         fft = np.abs(np.fft.rfft(audio[:n_fft] * np.hanning(n_fft)))
         freqs = np.fft.rfftfreq(n_fft, 1/self.RATE)
@@ -136,384 +106,272 @@ class VoiceWakeWord:
         
         cumsum = np.cumsum(fft)
         if cumsum[-1] > 0:
-            rolloff_idx = np.where(cumsum >= 0.85 * cumsum[-1])[0]
-            features['spectral_rolloff'] = float(freqs[rolloff_idx[0]]) if len(rolloff_idx) > 0 else 0.0
+            idx = np.where(cumsum >= 0.85 * cumsum[-1])[0]
+            features['spectral_rolloff'] = float(freqs[idx[0]]) if len(idx) > 0 else 0.0
         else:
             features['spectral_rolloff'] = 0.0
         
-        features['spectral_flux'] = float(np.sum(np.diff(fft)**2))
-        
-        # Мел-полосные энергии
+        # Мел-полосы
         n_mels = 16
-        
-        def hz_to_mel(hz):
-            return 2595 * np.log10(1 + hz / 700)
-        
-        def mel_to_hz(mel):
-            return 700 * (10**(mel / 2595) - 1)
+        def hz_to_mel(hz): return 2595 * np.log10(1 + hz/700)
+        def mel_to_hz(mel): return 700 * (10**(mel/2595) - 1)
         
         min_mel = hz_to_mel(0)
-        max_mel = hz_to_mel(self.RATE / 2)
-        mel_points = np.linspace(min_mel, max_mel, n_mels + 2)
+        max_mel = hz_to_mel(self.RATE/2)
+        mel_points = np.linspace(min_mel, max_mel, n_mels+2)
         hz_points = mel_to_hz(mel_points)
-        bin_indices = np.floor((n_fft + 1) * hz_points / self.RATE).astype(int)
-        bin_indices = np.clip(bin_indices, 0, len(fft) - 1)
+        bin_idx = np.clip(np.floor((n_fft+1) * hz_points / self.RATE).astype(int), 0, len(fft)-1)
         
         for i in range(n_mels):
-            start = bin_indices[i]
-            end = bin_indices[i + 2]
-            if start < end:
-                features[f'mel_band_{i}'] = float(np.sum(fft[start:end]))
+            if bin_idx[i] < bin_idx[i+2]:
+                features[f'mel_{i}'] = float(np.sum(fft[bin_idx[i]:bin_idx[i+2]]))
         
-        # Пики спектра (топ-3)
-        peak_indices = np.argsort(fft)[-3:]
-        for i, idx in enumerate(peak_indices):
-            if idx < len(freqs):
-                features[f'peak_{i}_freq'] = float(freqs[idx])
-                features[f'peak_{i}_mag'] = float(fft[idx])
+        # Пики
+        peaks = np.argsort(fft)[-3:]
+        for i, p in enumerate(peaks):
+            if p < len(freqs):
+                features[f'peak_{i}_freq'] = float(freqs[p])
         
         return features
     
-    def compare_features(self, test_features, model_features):
-        """
-        Сравнивает признаки с моделью.
-        Возвращает оценку схожести от 0 до 1.
-        """
-        if not test_features or not model_features:
+    def compare_features(self, test, model):
+        if not test or not model:
             return 0.0
         
-        # Игнорируем служебные ключи
-        ignore_keys = {'threshold', 'count', 'min', 'max'}
-        common_keys = (set(test_features.keys()) & set(model_features.keys())) - ignore_keys
+        ignore = {'threshold', 'count', 'min', 'max'}
+        common = (set(test.keys()) & set(model.keys())) - ignore
         
-        if len(common_keys) < 5:
+        if len(common) < 5:
             return 0.0
         
         scores = []
-        weights = []
-        
-        # Ключевые признаки с повышенным весом
-        important_features = ['rms_energy', 'zcr', 'spectral_centroid', 'duration', 
-                              'mel_band_2', 'mel_band_5', 'mel_band_8', 'peak_0_freq']
-        
-        for key in common_keys:
-            test_val = test_features[key]
-            model_stats = model_features[key]
-            
-            if isinstance(model_stats, dict) and 'mean' in model_stats:
-                mean = model_stats['mean']
-                std = model_stats.get('std', 1.0)
-                
+        for key in common:
+            tv = test[key]
+            ms = model[key]
+            if isinstance(ms, dict) and 'mean' in ms:
+                mean = ms['mean']
+                std = ms.get('std', 1.0)
                 if std > 0:
-                    deviation = abs(test_val - mean) / (std + 1e-6)
-                    score = np.exp(-deviation * 1.5)  # Более строгое наказание за отклонение
-                    
-                    # Повышенный вес для важных признаков
-                    weight = 2.0 if key in important_features else 1.0
-                    weight = weight / (std + 0.1)
-                    
-                    scores.append(score)
-                    weights.append(weight)
+                    dev = abs(tv - mean) / (std + 1e-6)
+                    scores.append(np.exp(-dev * 2.0))  # Строже
         
-        if not scores:
-            return 0.0
-        
-        total_weight = sum(weights)
-        if total_weight > 0:
-            final_score = sum(s * w for s, w in zip(scores, weights)) / total_weight
-        else:
-            final_score = np.mean(scores)
-        
-        return float(final_score)
+        return float(np.mean(scores)) if scores else 0.0
     
-    def record_samples(self, num_samples=10):
-        """Записывает образцы голоса для обучения."""
+    def record_samples(self, num_samples=8):
         print(f"\n{'='*50}")
-        print(f"ЗАПИСЬ ОБРАЗЦОВ ДЛЯ СЛОВА '{self.wake_word}'")
+        print(f"  ЗАПИСЬ ОБРАЗЦОВ: «{self.wake_word}»")
         print(f"{'='*50}")
-        print(f"\n⚡ ВАЖНО ДЛЯ ТОЧНОЙ МОДЕЛИ:")
-        print("  1. Полная тишина в помещении")
-        print("  2. Говорите ТОЛЬКО слово, без лишних звуков")
-        print("  3. Одинаковая громкость и интонация ВСЕГДА")
-        print("  4. Микрофон на расстоянии 15-20 см")
-        print(f"  5. Не меняйте положение относительно микрофона")
-        print(f"\nБудет записано {num_samples} образцов")
-        
-        input("\nНажмите Enter для начала...")
+        print("\n  ВАЖНО:")
+        print("  • Полная тишина")
+        print("  • Говорите ТОЛЬКО слово, без пауз до и после")
+        print("  • Одинаковая громкость и интонация")
+        print(f"\n  Будет записано {num_samples} образцов")
+        input("\n  Нажмите Enter...")
         
         self.audio = pyaudio.PyAudio()
         samples = []
         
         for i in range(num_samples):
-            print(f"\n--- Образец {i+1}/{num_samples} ---")
-            
-            for countdown in [3, 2, 1]:
-                print(f"  {countdown}...")
-                time.sleep(0.8)
-            
+            print(f"\n  Образец {i+1}/{num_samples}")
+            for c in [2, 1]:
+                print(f"  {c}...")
+                time.sleep(0.7)
             print("  ▶ ГОВОРИТЕ!")
             
             stream = self.audio.open(
-                format=self.FORMAT,
-                channels=self.CHANNELS,
-                rate=self.RATE,
-                input=True,
-                frames_per_buffer=self.CHUNK
+                format=self.FORMAT, channels=self.CHANNELS,
+                rate=self.RATE, input=True, frames_per_buffer=self.CHUNK
             )
             
             frames = []
-            for _ in range(0, int(self.RATE / self.CHUNK * 2.5)):
+            # Записываем 2 секунды
+            for _ in range(int(self.RATE / self.CHUNK * 2.0)):
                 try:
-                    data = stream.read(self.CHUNK, exception_on_overflow=False)
-                    frames.append(data)
+                    frames.append(stream.read(self.CHUNK, exception_on_overflow=False))
                 except:
                     break
-            
             stream.stop_stream()
             stream.close()
             
             if frames:
                 audio_data = np.frombuffer(b''.join(frames), dtype=np.int16)
                 
-                # Удаляем тишину
+                # Обрезаем тишину
                 energy = np.abs(audio_data)
-                threshold = np.mean(energy) * 2.0
-                voice_mask = energy > threshold
+                thresh = np.mean(energy) * 2.0
+                mask = energy > thresh
                 
-                if np.any(voice_mask):
-                    voice_indices = np.where(voice_mask)[0]
-                    margin = int(0.15 * self.RATE)
-                    start_idx = max(0, voice_indices[0] - margin)
-                    end_idx = min(len(audio_data), voice_indices[-1] + margin)
-                    audio_data = audio_data[start_idx:end_idx]
+                if np.any(mask):
+                    idx = np.where(mask)[0]
+                    margin = int(0.1 * self.RATE)
+                    start = max(0, idx[0] - margin)
+                    end = min(len(audio_data), idx[-1] + margin)
+                    audio_data = audio_data[start:end]
                 
-                # Проверяем длительность
-                duration = len(audio_data) / self.RATE
-                if 0.3 < duration < 2.0:  # Слово должно быть от 0.3 до 2 сек
+                dur = len(audio_data) / self.RATE
+                if 0.2 < dur < 2.0:
                     features = self.extract_features(audio_data)
                     if features:
                         samples.append(features)
-                        print(f"  ✓ Записан ({duration:.1f} сек)")
+                        print(f"  ✓ Записано ({dur:.1f}с)")
                     else:
-                        print(f"  ✗ Не удалось извлечь признаки")
+                        print(f"  ✗ Нет признаков")
                 else:
-                    print(f"  ✗ Неверная длительность: {duration:.1f} сек (нужно 0.3-2.0)")
-            else:
-                print(f"  ✗ Нет данных")
+                    print(f"  ✗ Длительность {dur:.1f}с (нужно 0.2-2.0)")
             
             time.sleep(0.3)
         
         self.audio.terminate()
         self.audio = None
         
-        if len(samples) < 5:
-            print(f"\n✗ Мало образцов: {len(samples)}. Нужно минимум 5.")
+        if len(samples) < 4:
+            print(f"\n  ✗ Мало образцов: {len(samples)}")
             return False
         
         # Создаём модель
-        print(f"\nСоздание модели из {len(samples)} образцов...")
-        
         self.custom_model = {}
         all_keys = set()
-        for sample in samples:
-            all_keys.update(sample.keys())
+        for s in samples:
+            all_keys.update(s.keys())
         
         for key in all_keys:
-            values = []
-            for sample in samples:
-                if key in sample:
-                    values.append(sample[key])
-            if len(values) >= 3:
+            vals = [s[key] for s in samples if key in s]
+            if len(vals) >= 3:
                 self.custom_model[key] = {
-                    'mean': float(np.mean(values)),
-                    'std': float(np.std(values)),
-                    'min': float(np.min(values)),
-                    'max': float(np.max(values))
+                    'mean': float(np.mean(vals)),
+                    'std': float(np.std(vals))
                 }
         
-        print(f"  Создано признаков: {len(self.custom_model)}")
-        
-        # Проверяем качество
-        print("\nПроверка на обучающих образцах:")
+        # Проверка
         scores = []
-        for i, sample in enumerate(samples):
-            score = self.compare_features(sample, self.custom_model)
-            scores.append(score)
-            status = "✓" if score > 0.75 else "⚠" if score > 0.6 else "✗"
-            print(f"  {status} Образец {i+1}: score = {score:.4f}")
+        for s in samples:
+            sc = self.compare_features(s, self.custom_model)
+            scores.append(sc)
+            print(f"  Score: {sc:.4f}")
         
-        avg_score = np.mean(scores)
-        min_score = np.min(scores)
-        
-        print(f"\nСредний score: {avg_score:.4f}")
-        print(f"Минимальный score: {min_score:.4f}")
-        
-        # Устанавливаем ВЫСОКИЙ порог
-        self.custom_threshold = max(0.75, min_score * 0.85)
-        print(f"Установлен порог: {self.custom_threshold:.4f}")
+        avg = np.mean(scores)
+        self.custom_threshold = max(0.5, min(0.8, avg * 0.85))
+        print(f"\n  Средний score: {avg:.4f}")
+        print(f"  Порог: {self.custom_threshold:.4f}")
         
         self.save_custom_model()
-        
-        if avg_score < 0.6:
-            print("\n⚠ Низкое качество! Обязательно:")
-            print("  - Записывайте в полной тишине")
-            print("  - Не двигайтесь во время записи")
-            print("  - Произносите слово одинаково ВСЕ образцы")
-        else:
-            print("\n✓ Модель хорошего качества!")
-        
         return True
     
     def on_detected(self, callback):
-        """Регистрирует callback."""
         self.detection_callbacks.append(callback)
     
     def _trigger(self):
-        """Вызывает callback при обнаружении с защитой от повторов."""
-        current_time = time.time()
-        
-        # Проверяем кулдаун
-        if current_time - self.last_detection_time < self.cooldown_period:
-            if self.debug:
-                print(f"  ⏳ Кулдаун, пропускаю ({(current_time - self.last_detection_time):.1f}с)")
+        now = time.time()
+        if now - self.last_detection_time < self.cooldown_period:
             return
-        
-        self.last_detection_time = current_time
-        print("\n🔔 АКТИВАЦИЯ! Обнаружено ключевое слово!")
-        
-        for callback in self.detection_callbacks:
-            callback()
+        self.last_detection_time = now
+        print("\n🔔 АКТИВАЦИЯ!")
+        for cb in self.detection_callbacks:
+            cb()
     
-    def _get_energy(self, audio_chunk):
-        """RMS энергия."""
-        return np.sqrt(np.mean(audio_chunk.astype(np.float32)**2))
-    
-    def _listen_loop(self):
-        """Основной цикл с улучшенной фильтрацией."""
+    def start_listening(self):
         self.audio = pyaudio.PyAudio()
+        self.running = True
+        
         self.stream = self.audio.open(
-            format=self.FORMAT,
-            channels=self.CHANNELS,
-            rate=self.RATE,
-            input=True,
-            frames_per_buffer=self.CHUNK
+            format=self.FORMAT, channels=self.CHANNELS,
+            rate=self.RATE, input=True, frames_per_buffer=self.CHUNK
         )
         
-        voice_detected = False
-        voice_frames_count = 0
-        silence_after_voice = 0
-        voice_buffer = []
-        
-        # Для фильтрации шумов
-        noise_spike_count = 0
-        
-        if self.debug:
-            print(f"🔍 Слушаю... (порог: {self.custom_threshold:.3f})")
-        else:
-            print(f"Слушаю... (порог: {self.custom_threshold:.3f})")
+        self.listen_thread = threading.Thread(target=self._loop, daemon=True)
+        self.listen_thread.start()
+        print(f"Слушаю... (порог: {self.custom_threshold:.3f})")
+    
+    def _loop(self):
+        # VAD состояние
+        speaking = False
+        speech_frames = 0
+        silence_frames = 0
+        buffer = []
         
         while self.running:
             try:
                 data = self.stream.read(self.CHUNK, exception_on_overflow=False)
-                audio_chunk = np.frombuffer(data, dtype=np.int16)
+                chunk = np.frombuffer(data, dtype=np.int16)
+                self.audio_buffer.append(chunk)
                 
-                self.audio_buffer.append(audio_chunk)
-                
-                energy = self._get_energy(audio_chunk)
+                energy = np.sqrt(np.mean(chunk.astype(np.float32)**2))
                 self.energy_history.append(energy)
                 
-                # Адаптивный порог речи
+                # Адаптивный порог: медиана шума * множитель
                 if len(self.energy_history) > 30:
-                    noise_level = np.percentile(list(self.energy_history), 15)  # 15 перцентиль для лучшей оценки шума
-                    speech_threshold = noise_level * self.SPEECH_ENERGY_MULTIPLIER
+                    noise_level = np.median(list(self.energy_history))
+                    threshold = max(100, noise_level * self.speech_energy_multiplier)
                 else:
-                    speech_threshold = 200.0
+                    threshold = 150
                 
-                is_speech = energy > speech_threshold
-                
-                # Фильтрация коротких шумовых всплесков
-                if is_speech and not voice_detected:
-                    noise_spike_count += 1
-                    if noise_spike_count < 4:  # Игнорируем всплески короче 4 чанков
-                        continue
+                is_speech = energy > threshold
                 
                 if is_speech:
-                    if not voice_detected:
-                        voice_detected = True
-                        context = list(self.audio_buffer)[-8:]  # Больше контекста
-                        voice_buffer = context.copy()
+                    if not speaking:
+                        speaking = True
+                        # Берём контекст до речи
+                        buffer = list(self.audio_buffer)[-5:]
                         if self.debug:
-                            print(f"\n🎤 Речь (energy={energy:.0f}, threshold={speech_threshold:.0f})")
+                            print(f"\n🎤 Речь (e={energy:.0f}, thr={threshold:.0f})")
                     
-                    voice_frames_count += 1
-                    silence_after_voice = 0
-                    voice_buffer.append(audio_chunk)
-                    noise_spike_count = 0
+                    speech_frames += 1
+                    silence_frames = 0
+                    buffer.append(chunk)
                     
-                elif voice_detected:
-                    silence_after_voice += 1
-                    voice_buffer.append(audio_chunk)
-                    
-                    if (voice_frames_count >= self.MIN_VOICE_FRAMES and 
-                        silence_after_voice >= self.MAX_SILENCE_FRAMES):
+                    # Слишком длинный сегмент — сбрасываем
+                    if speech_frames > self.max_speech_frames:
+                        if self.debug:
+                            print(f"  ⏭ Слишком длинно ({speech_frames*self.CHUNK/self.RATE:.1f}с), сброс")
+                        speaking = False
+                        speech_frames = 0
+                        silence_frames = 0
+                        buffer = []
                         
-                        if len(voice_buffer) > self.MIN_VOICE_FRAMES:
-                            segment = np.concatenate(voice_buffer)
+                elif speaking:
+                    silence_frames += 1
+                    buffer.append(chunk)
+                    
+                    # Достаточно тишины — анализируем
+                    if silence_frames >= self.silence_frames_stop:
+                        dur = len(buffer) * self.CHUNK / self.RATE
+                        
+                        # Проверяем длительность
+                        if self.min_speech_frames <= speech_frames <= self.max_speech_frames:
+                            segment = np.concatenate(buffer)
                             
-                            # Проверяем длительность сегмента
-                            segment_duration = len(segment) / self.RATE
-                            
-                            # Фильтруем по длительности (слово обычно 0.3-1.5 сек)
-                            if 0.3 < segment_duration < 2.0:
-                                if self.custom_model:
-                                    features = self.extract_features(segment)
-                                    if features:
-                                        similarity = self.compare_features(features, self.custom_model)
-                                        
-                                        if self.debug:
-                                            marker = " ← АКТИВАЦИЯ!" if similarity > self.custom_threshold else ""
-                                            print(f"  Анализ: score={similarity:.4f} (порог={self.custom_threshold:.3f}, длит={segment_duration:.1f}с){marker}")
-                                        
-                                        if similarity > self.custom_threshold:
-                                            self._trigger()
-                                else:
-                                    print("  ⚠ Модель не обучена!")
+                            if self.custom_model:
+                                features = self.extract_features(segment)
+                                if features:
+                                    score = self.compare_features(features, self.custom_model)
+                                    
+                                    if self.debug:
+                                        marker = " ✓АКТИВАЦИЯ!" if score > self.custom_threshold else ""
+                                        print(f"  Анализ: score={score:.4f} (порог={self.custom_threshold:.3f}, dur={dur:.1f}с){marker}")
+                                    
+                                    if score > self.custom_threshold:
+                                        self._trigger()
                             elif self.debug:
-                                print(f"  Пропущено: длительность {segment_duration:.1f}с (вне диапазона 0.3-2.0)")
+                                print(f"  Голос обнаружен (dur={dur:.1f}с), но нет модели")
+                        elif self.debug:
+                            print(f"  Пропущено: длительность {dur:.1f}с (диапазон 0.5-3.0с)")
                         
                         # Сброс
-                        voice_detected = False
-                        voice_frames_count = 0
-                        silence_after_voice = 0
-                        voice_buffer = []
-                        noise_spike_count = 0
+                        speaking = False
+                        speech_frames = 0
+                        silence_frames = 0
+                        buffer = []
                         
             except Exception as e:
-                print(f"Ошибка: {e}")
+                if self.debug:
+                    print(f"Ошибка: {e}")
                 time.sleep(0.1)
     
-    def start_listening(self):
-        """Запускает прослушивание."""
-        if self.running:
-            return
-        
-        self.running = True
-        self.listen_thread = threading.Thread(target=self._listen_loop, daemon=True)
-        self.listen_thread.start()
-    
     def stop(self):
-        """Останавливает."""
         self.running = False
         time.sleep(0.3)
-        
         if self.stream:
-            try:
-                self.stream.stop_stream()
-                self.stream.close()
-            except:
-                pass
+            self.stream.stop_stream()
+            self.stream.close()
         if self.audio:
-            try:
-                self.audio.terminate()
-            except:
-                pass
+            self.audio.terminate()
