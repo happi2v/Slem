@@ -20,6 +20,7 @@
 1.  Установите необходимые библиотеки:
     ```bash
     pip install pyaudio faster-whisper openwakeword numpy
+    pip install edge-tts pygame
     ```
 2.  Установите необходимые библиотеки:
     ```bash
