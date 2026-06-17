@@ -21,6 +21,8 @@
     ```bash
     pip install pyaudio faster-whisper openwakeword numpy
     pip install edge-tts pygame
+    pip install openwakeword pydub
+    pip install pvporcupine pvrecorder
     ```
 2.  Установите необходимые библиотеки:
     ```bash
