@@ -23,6 +23,8 @@
     pip install edge-tts pygame
     pip install openwakeword pydub
     pip install pvporcupine pvrecorder
+    pip install openwakeword
+    pip install pyaudio numpy
     ```
 2.  Установите необходимые библиотеки:
     ```bash
