@@ -17,7 +17,7 @@ import glob
 # НАСТРОЙКИ
 # ============================================================
 WAKE_THRESHOLD = 0.35
-MODEL_SIZE = "medium"
+MODEL_SIZE = "large"
 LLM_MODEL = "llama3.2:3b"
 
 STEAM_PATH = r"C:\Program Files (x86)\Steam\Steam.exe"
