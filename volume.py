@@ -1,133 +1,125 @@
 # volume.py
 """
 Управление системной громкостью Windows.
-Использует Win32 API напрямую.
 """
 import ctypes
 import time
 
 
 class VolumeControl:
-    """Управление громкостью через Win32 API."""
+    """Управление громкостью."""
     
     def __init__(self):
-        self.ok = True
-        print("  ✓ Громкость (Win32 API)")
+        self.ok = False
+        
+        try:
+            self.winmm = ctypes.windll.winmm
+            # Проверяем чтение
+            vol = ctypes.c_uint()
+            result = self.winmm.waveOutGetVolume(0, ctypes.byref(vol))
+            if result == 0:
+                self.ok = True
+                current = int((vol.value & 0xFFFF) / 0xFFFF * 100)
+                print(f"  ✓ Громкость: {current}%")
+            else:
+                print(f"  ⚠ WinMM ошибка чтения, использую клавиши")
+        except Exception as e:
+            print(f"  ⚠ WinMM: {e}, использую клавиши")
     
     def get_volume(self):
-        """Получить текущую громкость (0-100)."""
-        try:
-            # Используем ctypes для вызова WinMM
-            winmm = ctypes.windll.winmm
-            volume = ctypes.c_uint()
-            winmm.waveOutGetVolume(0, ctypes.byref(volume))
-            
-            # Расшифровываем значение (младшие 16 бит — левый канал)
-            left = volume.value & 0xFFFF
-            right = (volume.value >> 16) & 0xFFFF
-            
-            # Конвертируем в проценты (0x0000-0xFFFF)
-            return int((left + right) / 2 / 0xFFFF * 100)
-        except:
-            return 50
+        """Получить громкость 0-100."""
+        if self.ok:
+            try:
+                vol = ctypes.c_uint()
+                self.winmm.waveOutGetVolume(0, ctypes.byref(vol))
+                left = vol.value & 0xFFFF
+                return int(left / 0xFFFF * 100)
+            except:
+                self.ok = False
+        return 50
     
     def set_volume(self, level):
-        """Установить громкость (0-100)."""
+        """Установить громкость 0-100."""
         level = max(0, min(100, level))
         
-        try:
-            winmm = ctypes.windll.winmm
-            
-            # Конвертируем проценты в значение WinMM
-            value = int(level / 100 * 0xFFFF)
-            # Оба канала
-            volume_value = value | (value << 16)
-            
-            winmm.waveOutSetVolume(0, volume_value)
-            print(f"  🔊 Громкость: {level}%")
-            return level
-        except:
-            pass
+        if self.ok:
+            try:
+                # Конвертируем 0-100 в 0-65535
+                val = int(level / 100.0 * 0xFFFF)
+                # Оба канала
+                both = val | (val << 16)
+                
+                print(f"  DEBUG: level={level}, val={val}, both={both}")
+                
+                result = self.winmm.waveOutSetVolume(0, both)
+                
+                if result == 0:
+                    print(f"  🔊 Громкость: {level}%")
+                    return level
+                else:
+                    print(f"  ⚠ WinMM set error: {result}")
+                    self.ok = False
+            except Exception as e:
+                print(f"  ⚠ WinMM set exception: {e}")
+                self.ok = False
         
-        # Fallback: клавиши
-        self._press_volume_keys(level)
+        # Fallback
+        if not self.ok:
+            print(f"  ⌨ Клавиши -> {level}%")
+            self._set_via_keys(level)
+        
         return level
     
     def volume_up(self, step=10):
-        """Увеличить громкость."""
-        current = self.get_volume()
-        return self.set_volume(current + step)
+        return self.set_volume(self.get_volume() + step)
     
     def volume_down(self, step=10):
-        """Уменьшить громкость."""
-        current = self.get_volume()
-        return self.set_volume(current - step)
+        return self.set_volume(self.get_volume() - step)
     
     def mute(self):
-        """Переключить mute."""
         try:
             import keyboard
             keyboard.press_and_release("volume_mute")
             time.sleep(0.1)
-            return None
         except:
             pass
     
     def is_muted(self):
-        """Проверяет, выключен ли звук."""
-        return False  # WinMM не показывает mute
+        return False
     
-    def _press_volume_keys(self, target_level):
-        """Устанавливает громкость клавишами."""
+    def _set_via_keys(self, target):
+        """Установка громкости клавишами."""
         try:
             import keyboard
             
-            # Опускаем в 0
+            # В 0
             for _ in range(50):
                 keyboard.press_and_release("volume_down")
-                time.sleep(0.005)
+                time.sleep(0.003)
             
-            time.sleep(0.1)
+            time.sleep(0.05)
             
-            # Поднимаем до нужного
-            presses = target_level // 2
-            for _ in range(presses):
+            # Вверх
+            for _ in range(target // 2):
                 keyboard.press_and_release("volume_up")
-                time.sleep(0.005)
+                time.sleep(0.003)
+            
+            print(f"  ⌨ Громкость: ~{target}%")
         except:
-            pass
+            print("  ⚠ Клавиши не работают")
 
 
-# ============================================================
-# ТЕСТ
-# ============================================================
+# Тест
 if __name__ == "__main__":
-    print("=" * 50)
-    print("  ТЕСТ ГРОМКОСТИ")
-    print("=" * 50)
-    
     vc = VolumeControl()
+    print(f"\nТекущая: {vc.get_volume()}%")
     
-    vol = vc.get_volume()
-    print(f"\n  Текущая громкость: {vol}%")
-    print(f"  Метод: Win32 API")
+    print("\nТест 50%:")
+    vc.set_volume(50)
+    time.sleep(0.5)
+    print(f"Стало: {vc.get_volume()}%")
     
-    print("\n  Команды: up, down, 50, mute, exit\n")
-    
-    while True:
-        cmd = input("  > ").strip().lower()
-        
-        if cmd == "exit":
-            break
-        elif cmd == "up":
-            vc.volume_up(10)
-            print(f"  Громкость: {vc.get_volume()}%")
-        elif cmd == "down":
-            vc.volume_down(10)
-            print(f"  Громкость: {vc.get_volume()}%")
-        elif cmd == "mute":
-            vc.mute()
-        elif cmd.isdigit():
-            vc.set_volume(int(cmd))
-        else:
-            print("  ?")
+    print("\nТест 30%:")
+    vc.set_volume(30)
+    time.sleep(0.5)
+    print(f"Стало: {vc.get_volume()}%")

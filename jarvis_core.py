@@ -1,7 +1,7 @@
 # jarvis_core.py
 """
 ДЖАРВИС — ГОЛОСОВОЙ АССИСТЕНТ
-v10.0 — финальное ядро
+v22.0 — Steam, Discord, голосовой ввод
 """
 import os
 import sys
@@ -10,6 +10,8 @@ import datetime
 import webbrowser
 import random
 import re
+import subprocess
+import glob
 
 # ============================================================
 # НАСТРОЙКИ
@@ -18,11 +20,13 @@ WAKE_THRESHOLD = 0.35
 MODEL_SIZE = "medium"
 LLM_MODEL = "llama3.2:3b"
 
+STEAM_PATH = r"C:\Program Files (x86)\Steam\Steam.exe"
+
 # ============================================================
 # ИМПОРТЫ
 # ============================================================
 print("=" * 55)
-print("  ДЖАРВИС v10.0")
+print("  ДЖАРВИС v22.0")
 print("=" * 55)
 print("  Загрузка модулей...")
 
@@ -90,6 +94,23 @@ try:
 except Exception as e:
     ok['volume'] = False
     print(f"  ⚠ Громкость: {e}")
+
+try:
+    import pyperclip
+    CLIPBOARD_OK = True
+except:
+    CLIPBOARD_OK = False
+
+KEYBOARD_OK = False
+try:
+    import keyboard
+    KEYBOARD_OK = True
+except:
+    try:
+        import pyautogui
+        KEYBOARD_OK = True
+    except:
+        pass
 
 
 # ============================================================
@@ -159,13 +180,45 @@ class Jarvis:
             w = w.strip()
             if w in text:
                 return True
-            if len(w) >= 4 and w[:4] in text:
+            if len(w) >= 5 and w[:4] in text:
                 return True
         return False
     
     def _extract_number(self, text):
         match = re.search(r'\b(\d+)\b', text)
         return int(match.group(1)) if match else None
+    
+    def _find_discord(self):
+        """Находит актуальный путь к Discord.exe."""
+        base = os.path.expanduser(r"~\AppData\Local\Discord")
+        # Ищем app-* папки
+        pattern = os.path.join(base, "app-*", "Discord.exe")
+        matches = glob.glob(pattern)
+        if matches:
+            # Сортируем по версии (последняя)
+            matches.sort(reverse=True)
+            return matches[0]
+        return None
+    
+    def _open_app(self, path, name):
+        if path and os.path.exists(path):
+            os.system(f'start "" "{path}"')
+            return True
+        return False
+    
+    def _type_text(self, text):
+        if not CLIPBOARD_OK or not KEYBOARD_OK:
+            return False
+        try:
+            pyperclip.copy(text)
+            time.sleep(0.3)
+            try:
+                keyboard.press_and_release("ctrl+v")
+            except:
+                pyautogui.hotkey("ctrl", "v")
+            return True
+        except:
+            return False
     
     def _on_wake(self):
         if not self.active:
@@ -183,10 +236,10 @@ class Jarvis:
         
         cmd = command.lower().strip()
         self.stats["commands"] += 1
-        n = self.stats["commands"]
-        print(f"📝 [{n}] «{cmd}»")
+        print(f"📝 [{self.stats['commands']}] «{cmd}»")
         
         if self._sys(cmd): return self.running
+        if self._write(cmd): return True
         if self.volume and self._vol(cmd): return True
         if self._apps(cmd): return True
         if self._time(cmd): return True
@@ -205,8 +258,11 @@ class Jarvis:
         self.stats["errors"] += 1
         return True
     
+    # ============================================================
+    # СИСТЕМА
+    # ============================================================
     def _sys(self, cmd):
-        if self._has(cmd, "выход,пока,отключись,выключись,стоп,хватит,завершение"):
+        if self._has(cmd, "выход,пока,отключись,выключись,стоп,хватит,завершение,закройся"):
             self._say(self._r("bye"))
             time.sleep(0.8)
             self.running = False
@@ -216,136 +272,201 @@ class Jarvis:
             time.sleep(0.8)
             self.running = False
             return True
-        if self._has(cmd, "статистика,стата,аптайм"):
+        if self._has(cmd, "статистика,стата,аптайм,отчёт"):
             self._tell_stats()
             return True
         return False
     
-    def _vol(self, cmd):
-        # Уровни
-        if self._has(cmd, "максимальная,максимум,на всю,полная,сотка,сто"):
-            self.volume.set_volume(100)
-            self._say("Максимальная громкость.")
-            return True
-        if self._has(cmd, "средняя,половина,половинку,половину"):
-            self.volume.set_volume(50)
-            self._say("Средняя громкость.")
-            return True
-        if self._has(cmd, "минимальная,минимум,в ноль,ноль"):
-            self.volume.set_volume(0)
-            self._say("Минимальная громкость.")
-            return True
+    # ============================================================
+    # ГОЛОСОВОЙ ВВОД
+    # ============================================================
+    def _write(self, cmd):
+        prefixes = ["напиши ", "запиши ", "напечатай ", "печатай ", "введи ", "текст ", "набрать "]
         
-        # Относительные
-        if self._has(cmd, "громче,погромче,прибавь громкость,увеличь громкость"):
+        for prefix in prefixes:
+            if cmd.startswith(prefix):
+                text = cmd[len(prefix):].strip()
+                if text:
+                    return self._do_write(text)
+        
+        for word in ["напиши", "запиши", "напечатай", "введи"]:
+            if word in cmd:
+                parts = cmd.split(word, 1)
+                if len(parts) > 1 and parts[1].strip():
+                    return self._do_write(parts[1].strip())
+        
+        return False
+    
+    def _do_write(self, text):
+        print(f"  ✍️ Пишу: «{text}»")
+        os.system("start notepad" if os.name == "nt" else "gedit &")
+        time.sleep(1.5)
+        if self._type_text(text):
+            self._say("Готово.")
+        else:
+            self._say("Не получилось.")
+        self._beep(play_confirm_signal)
+        return True
+    
+    # ============================================================
+    # ГРОМКОСТЬ
+    # ============================================================
+    def _vol(self, cmd):
+        if "громкость" in cmd:
+            num = self._extract_number(cmd)
+            if num is not None and 1 <= num <= 100:
+                self.volume.set_volume(num)
+                self._say(f"Громкость {num}.")
+                return True
+        
+        level_words = [
+            (["максимальная", "максимум", "на всю", "полная", "сотка", "сто", "макс", "полную"], 100, "Максимальная."),
+            (["громкая", "высокая", "сильно"], 80, "Громкая."),
+            (["средняя", "половина", "половинку", "середина", "пятьдесят", "среднюю", "половину"], 50, "Средняя."),
+            (["тихая", "низкая", "фон", "чуть", "тихо", "двадцать", "тихую"], 20, "Тихая."),
+            (["минимальная", "минимум", "в ноль", "ноль", "мин", "минимальную"], 0, "Минимальная."),
+        ]
+        
+        for words, level, response in level_words:
+            if self._has(cmd, ",".join(words)):
+                self.volume.set_volume(level)
+                self._say(response)
+                return True
+        
+        if self._has(cmd, "громче,погромче,прибавь,увеличь,повысь,вверх,плюс"):
             vol = self.volume.volume_up(10)
             self._say(f"Громкость {vol}.")
             return True
-        if self._has(cmd, "тише,потише,убавь громкость,уменьши громкость"):
+        if self._has(cmd, "тише,потише,убавь,уменьши,понизь,вниз,минус"):
             vol = self.volume.volume_down(10)
             self._say(f"Громкость {vol}.")
             return True
         
-        # Mute
-        if self._has(cmd, "выключи звук,без звука,мут,mute,отключи звук,заглуши"):
+        if self._has(cmd, "выключи звук,без звука,мут,mute,отключи звук,заглуши,тишина"):
             self.volume.mute()
             self._say("Звук выключен.")
             return True
-        if self._has(cmd, "включи звук,верни звук,анмут,unmute,включи обратно,отключи мут"):
+        if self._has(cmd, "включи звук,верни звук,анмут,unmute,со звуком"):
             self.volume.mute()
             self._say("Звук включён.")
             return True
         
-        # Инфо
-        if self._has(cmd, "какая громкость,уровень громкости,сколько громкость,громкость сейчас"):
+        if self._has(cmd, "какая громкость,уровень громкости,сколько громкость,текущая,скажи громкость"):
             vol = self.volume.get_volume()
-            self._say(f"Текущая громкость {vol} процентов.")
+            self._say(f"Громкость {vol} процентов.")
             return True
-        
-        # Конкретное число: только если "громкость" + число
-        if ("громкость" in cmd or "громкости" in cmd):
-            num = self._extract_number(cmd)
-            if num is not None and 1 <= num <= 100:
-                self.volume.set_volume(num)
-                self._say(f"Громкость {num} процентов.")
-                return True
         
         return False
     
+    # ============================================================
+    # ПРИЛОЖЕНИЯ
+    # ============================================================
     def _apps(self, cmd):
-        if self._has(cmd, "браузер,интернет,веб,гугл"):
-            self._say("Запускаю браузер.")
+        # Discord — ПЕРВЫМ (автопоиск папки app-*)
+        if self._has(cmd, "дискорд,discord,дискард,дискор,диска,дискордом,дискорда,дискорде"):
+            self._say("Запускаю Discord.")
+            discord_path = self._find_discord()
+            if discord_path and self._open_app(discord_path, "Discord"):
+                self._beep(play_confirm_signal)
+            else:
+                # Fallback: команда discord
+                os.system("start discord:")
+                self._beep(play_confirm_signal)
+            return True
+        
+        # Steam — ВТОРЫМ
+        if self._has(cmd, "стим,steam,игры,стимул,стимом,стиму,стиме,стима"):
+            self._say("Запускаю Steam.")
+            if self._open_app(STEAM_PATH, "Steam"):
+                self._beep(play_confirm_signal)
+            else:
+                os.system("start steam://open/main")
+                self._beep(play_confirm_signal)
+            return True
+        
+        # Браузеры и сайты
+        if self._has(cmd, "браузер,интернет,веб,гугл,хром"):
+            self._say("Браузер.")
             webbrowser.open("https://google.com")
             self._beep(play_confirm_signal)
             return True
-        if self._has(cmd, "ютуб,youtube,видео"):
-            self._say("Открываю YouTube.")
+        if self._has(cmd, "ютуб,youtube,видео,ютюб"):
+            self._say("YouTube.")
             webbrowser.open("https://youtube.com")
             self._beep(play_confirm_signal)
             return True
-        if self._has(cmd, "калькулятор,посчитать"):
+        
+        # Стандартные
+        if self._has(cmd, "калькулятор,посчитать,кальк"):
             self._say("Калькулятор.")
             os.system("calc" if os.name == "nt" else "gnome-calculator &")
             self._beep(play_confirm_signal)
             return True
-        if self._has(cmd, "блокнот,notepad,заметки,текст"):
+        if self._has(cmd, "блокнот,notepad,заметки,текст,запись"):
             self._say("Блокнот.")
-            os.system("notepad" if os.name == "nt" else "gedit &")
+            os.system("start notepad" if os.name == "nt" else "gedit &")
             self._beep(play_confirm_signal)
             return True
-        if self._has(cmd, "терминал,консоль,cmd"):
+        if self._has(cmd, "терминал,консоль,cmd,командная"):
             self._say("Терминал.")
             os.system("start cmd" if os.name == "nt" else "gnome-terminal &")
             self._beep(play_confirm_signal)
             return True
-        if self._has(cmd, "проводник,файлы,папки,провод"):
+        if self._has(cmd, "проводник,файлы,папки,провод,эксплорер"):
             self._say("Проводник.")
             os.system("explorer ." if os.name == "nt" else "nautilus . &")
             self._beep(play_confirm_signal)
             return True
-        if self._has(cmd, "диспетчер задач,процессы"):
+        if self._has(cmd, "диспетчер задач,процессы,диспетч"):
             self._say("Диспетчер задач.")
             os.system("taskmgr" if os.name == "nt" else "gnome-system-monitor &")
             self._beep(play_confirm_signal)
             return True
+        
         return False
     
+    # ============================================================
+    # ВРЕМЯ / ДАТА
+    # ============================================================
     def _time(self, cmd):
-        if self._has(cmd, "время,который час,часы,сколько время"):
+        if self._has(cmd, "время,который час,часы,сколько время,тайм,время сейчас"):
             self._tell_time()
             return True
-        if self._has(cmd, "дата,число,сегодня,день,какое число"):
+        if self._has(cmd, "дата,число,сегодня,день,какое число,число сегодня,дата сегодня"):
             self._tell_date()
             return True
         return False
     
+    # ============================================================
+    # МУЗЫКА
+    # ============================================================
     def _mus(self, cmd):
-        if self._has(cmd, "включи музыку,открой музыку,яндекс музыка,запусти музыку"):
+        if self._has(cmd, "включи музыку,открой музыку,яндекс музыка,запусти музыку,музыка,открой яндекс"):
             self._say("Открываю Яндекс Музыку.")
             self.music.open()
             self._beep(play_confirm_signal)
             return True
-        if self._has(cmd, "пауза,стоп, pause,останови музыку,поставь на паузу"):
+        if self._has(cmd, "пауза,стоп, pause,останови,поставь на паузу,приостанови"):
             self._say("Пауза.")
             self.music.play_pause()
             return True
-        if self._has(cmd, "продолжи,играй,плей, play,продолжи музыку"):
+        if self._has(cmd, "продолжи,играй,плей, play,продолжи музыку,возобнови"):
             self._say("Продолжаю.")
             self.music.play_pause()
             return True
-        if self._has(cmd, "следующий,некст,вперёд,следующий трек,скип,дальше"):
+        if self._has(cmd, "следующий,некст,вперёд,следующий трек,скип,дальше трек,следующая"):
             self._say("Следующий трек.")
             self.music.next_track()
             return True
-        if self._has(cmd, "предыдущий,назад,прошлый,предыдущий трек"):
+        if self._has(cmd, "предыдущий,назад,прошлый,предыдущий трек,назад трек,предыдущая"):
             self._say("Предыдущий трек.")
             self.music.prev_track()
             return True
-        if self._has(cmd, "лайк,нравится, like,мне нравится"):
+        if self._has(cmd, "лайк,нравится, like,мне нравится,лайкни"):
             self._say("Лайк.")
             self.music.like()
             return True
-        if self._has(cmd, "закрой музыку,выключи музыку"):
+        if self._has(cmd, "закрой музыку,выключи музыку,останови музыку,хватит музыки"):
             self._say("Закрываю музыку.")
             self.music.close()
             return True
@@ -353,14 +474,19 @@ class Jarvis:
         for prefix in ["включи ", "поставь ", "запусти "]:
             if cmd.startswith(prefix):
                 query = cmd[len(prefix):].strip()
-                if query and query not in ["музыку", "музыка", "песню", "трек", "звук"]:
+                skip = ["музыку", "музыка", "песню", "трек", "звук", "громкость", "громче", "тише",
+                        "стим", "steam", "дискорд", "discord", "браузер", "ютуб"]
+                if query and query not in skip:
                     self._say(f"Ищу {query}.")
                     self.music.search(query)
                     return True
         return False
     
+    # ============================================================
+    # ОБЩЕНИЕ
+    # ============================================================
     def _talk(self, cmd):
-        if self._has(cmd, "привет,здравствуй,хай,хелло,добрый"):
+        if self._has(cmd, "привет,здравствуй,хай,хелло,добрый,здарова,салют"):
             h = datetime.datetime.now().hour
             if h < 6: g = "Доброй ночи"
             elif h < 12: g = "Доброе утро"
@@ -368,29 +494,31 @@ class Jarvis:
             else: g = "Добрый вечер"
             self._say(f"{g}! Я Джарвис.")
             return True
-        if self._has(cmd, "как дела,настроение,как ты,как жизнь"):
+        if self._has(cmd, "как дела,настроение,как ты,как жизнь,как сам"):
             self._say(random.choice(["Всё в норме.", "Работаю штатно.", "Готов к задачам.", "Отлично."]))
             return True
-        if self._has(cmd, "что ты умеешь,помощь,команды,справка,help"):
-            self._say("Браузер, YouTube, калькулятор, блокнот, терминал, проводник, музыка, громкость, время, дата. «пока» — выход.")
+        if self._has(cmd, "что ты умеешь,помощь,команды,справка,help,что можешь"):
+            self._say("Браузер, YouTube, Steam, Discord, калькулятор, блокнот, терминал, проводник, музыка, громкость, время, дата, написать текст. «пока» — выход.")
             return True
-        if self._has(cmd, "кто ты,имя,как зовут"):
+        if self._has(cmd, "кто ты,имя,как зовут,твоё имя"):
             self._say("Я Джарвис — голосовой ассистент.")
             return True
-        if self._has(cmd, "спасибо,благодарю,молодец,красава"):
+        if self._has(cmd, "спасибо,благодарю,молодец,красава,отлично,супер"):
             self._say(self._r("thanks"))
             return True
-        if self._has(cmd, "шутка,анекдот,пошути,рассмеши"):
+        if self._has(cmd, "шутка,анекдот,пошути,рассмеши,юмор"):
             jokes = [
                 "31 октября = 25 декабря. Программисты путают Хэллоуин и Рождество.",
                 "Сколько программистов вкрутят лампочку? Ни одного. Это hardware.",
                 "Почему Python спокойный? Нет скобок.",
-                "Программист ставит будильник. Просыпается. Ложится. Это рекурсия.",
             ]
             self._say(random.choice(jokes))
             return True
         return False
     
+    # ============================================================
+    # ИНФОРМАЦИЯ
+    # ============================================================
     def _tell_time(self):
         now = datetime.datetime.now()
         h, m = now.hour, now.minute
@@ -415,8 +543,11 @@ class Jarvis:
         up = datetime.datetime.now() - self.stats["start"]
         h, m = up.seconds // 3600, (up.seconds % 3600) // 60
         info = self.rec.info()
-        self._say(f"Работаю {h} ч {m} мин. Команд: {self.stats['commands']}. Whisper на {info['device']}.")
+        self._say(f"Работаю {h} ч {m} мин. Команд: {self.stats['commands']}.")
     
+    # ============================================================
+    # ГЛАВНЫЙ ЦИКЛ
+    # ============================================================
     def run(self):
         if self.use_wake and self.wakeword:
             self._run_voice()
@@ -430,11 +561,6 @@ class Jarvis:
         
         print(f"\n{'='*55}")
         print(f"  ГОЛОСОВОЙ РЕЖИМ")
-        mods = []
-        if self.llm: mods.append("LLM")
-        if self.music: mods.append("Музыка")
-        if self.volume: mods.append("Громкость")
-        if mods: print(f"  {' • '.join(mods)}")
         print(f"  Скажите «Джарвис»")
         print(f"{'='*55}\n")
         
