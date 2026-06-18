@@ -21,7 +21,7 @@ if errorlevel 1 goto :uninstall
 echo.
 echo   Удаление...
 
-:: Удаление Python-пакетов (опционально)
+:: Удаление Python-пакетов
 choice /c YN /m "  Удалить Python-зависимости? (Y/N)"
 if errorlevel 2 goto :skip_pip
 if errorlevel 1 (
