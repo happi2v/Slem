@@ -35,28 +35,33 @@
 ## Установка
 1.  Установите необходимые библиотеки:
     ```bash
-    pip install pyaudio faster-whisper openwakeword numpy
-    pip install edge-tts pygame
-    pip install openwakeword pydub
-    pip install pvporcupine pvrecorder
-    pip install openwakeword
-    pip install pyaudio numpy
-    pip install torch
-    pip install pyperclip
-    pip install pyautogui keyboard
-    pip install keyboard
-    pip install keyboard pyperclip
-    pip install pycaw comtypes
+    pip install pyaudio faster-whisper openwakeword numpy edge-tts pygame pydub pvporcupine pvrecorder torch pyperclip pyautogui keyboard pycaw comtypes pystray pillow
+    #pyaudio — работа с аудиопотоками (запись и воспроизведение звука в реальном времени).
+    #faster-whisper — быстрая реализация модели распознавания речи Whisper от OpenAI для транскрибации аудио в текст. |
+    #openwakeword — обнаружение «ключевого слова» (wake‑word), например, «Эй, ассистент», для активации системы голосового управления. 
+    #numpy — фундаментальная библиотека для научных вычислений, необходима для работы многих других библиотек (в т. ч. faster-whisper).
+    #edge-tts — синтез речи (text‑to‑speech) с использованием сервиса Microsoft Edge, позволяет озвучивать текст.
+    #pygame — библиотека для мультимедийных приложений, здесь может использоваться для простого воспроизведения звуковых файлов.
+    #pydub — обработка аудиофайлов: обрезка, конвертация форматов, изменение громкости и т. д.
+    #pvporcupine — коммерческая библиотека от Picovoice для высокоточного и энергоэффективного обнаружения wake‑word.
+    #pvrecorder — библиотека от Picovoice для записи аудио с микрофона, хорошо интегрируется с pvporcupine.
+    #torch (PyTorch) — фреймворк машинного обучения, необходим для запуска модели faster-whisper.
+    #pyperclip — работа с буфером обмена (копирование и вставка текста).
+    #pyautogui — автоматизация действий мыши и клавиатуры (перемещение курсора, клики, нажатия клавиш).
+    #keyboard — низкоуровневое управление клавиатурой (перехват нажатий, имитация нажатий).
+    #pycaw — управление громкостью звука в Windows.
+    #comtypes — библиотека для работы с COM‑интерфейсами в Windows, требуется для корректной работы pycaw
+    #pillow — работа с изображениями. В контексте pystray нужна для загрузки и создания иконок для системного трея.
+    #pystray — создание иконки приложения в системном трее (области уведомлений) с меню по клику.
     pip install torch --index-url https://download.pytorch.org/whl/cu121
     # Для CUDA 12.1
     pip install torch --index-url https://download.pytorch.org/whl/cu121
     # Для CUDA 11.8
-    pip install torch --index-url https://download.pytorch.org/whl/cu118
-    
+     pip install torch --index-url https://download.pytorch.org/whl/cu118
     
     pip install pystray pillow
     ```
-2.  Обучите модель:
+3.  Обучите модель:
     ```bash
     Запустите файл и сделайте от 10 до 30 записей
     train_wakeword.py
