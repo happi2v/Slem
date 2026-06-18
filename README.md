@@ -4,16 +4,14 @@
   **PyAudio — для захвата звука с микрофона**  
   *Faster-Whisper — для распознавания речи*  
   *OpenWakeWord — для обнаружения ключевой фразы (чтобы не распознавать всё подряд)*  
-<details>
-<summary>My top languages</summary>
 
-| Rank | Languages |
-|-----:|-----------|
-|     1| JavaScript|
-|     2| Python    |
-|     3| SQL       |
+Скачайте и установите: https://ollama.com/download
+1.  Установите необходимые библиотеки:
+    ```bash
+    После установки скачайте модель:
+    ollama pull llama3.2:3b
+    ```
 
-</details>
 
 
 ## Установка
@@ -37,3 +35,4 @@
     Запустите файл и сделайте от 10 до 30 записей
     train_wakeword.py
     ```
+    pip install ollama
