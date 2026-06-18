@@ -25,8 +25,15 @@
     pip install pvporcupine pvrecorder
     pip install openwakeword
     pip install pyaudio numpy
+    pip install torch
+    pip install torch --index-url https://download.pytorch.org/whl/cu121
+    # Для CUDA 12.1
+    pip install torch --index-url https://download.pytorch.org/whl/cu121
+    # Для CUDA 11.8
+    pip install torch --index-url https://download.pytorch.org/whl/cu118
     ```
-2.  Установите необходимые библиотеки:
+2.  Обучите модель:
     ```bash
-    pip install -r requirements.txt
+    Запустите файл и сделайте от 10 до 30 записей
+    train_wakeword.py
     ```
