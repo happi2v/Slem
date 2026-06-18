@@ -23,6 +23,7 @@
     pip install openwakeword
     pip install pyaudio numpy
     pip install torch
+    pip install pyperclip
     pip install pyautogui keyboard
     pip install keyboard
     pip install keyboard pyperclip
