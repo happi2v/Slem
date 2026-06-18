@@ -48,3 +48,7 @@
     # Запуск Джарвиса
     python jarvis_core.py
     ```
+git add .
+git commit -m ""
+git push origin "checkpoint name"
+git checkout master
