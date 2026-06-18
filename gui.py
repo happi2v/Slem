@@ -4,8 +4,6 @@
 """
 import threading
 import time
-import os
-import sys
 
 try:
     import tkinter as tk
@@ -59,7 +57,6 @@ class GUI:
         self.monitor = Monitor()
         
         if GUI_OK:
-            # Запускаем в ОТДЕЛЬНОМ ПОТОКЕ
             t = threading.Thread(target=self._run, daemon=True)
             t.start()
             time.sleep(0.3)
@@ -103,6 +100,7 @@ class GUI:
         self.ram_txt, self.ram_bar = self._bar(f, "RAM", "#58a6ff")
         self.gpu_txt, self.gpu_bar = self._bar(f, "GPU", "#a371f7")
         
+        self.root.protocol("WM_DELETE_WINDOW", self._stop)
         self._tick()
         self.root.mainloop()
     
@@ -133,6 +131,7 @@ class GUI:
             self._draw(self.cpu_bar, cpu, "#f0883e")
             self.ram_txt.config(text=f"RAM {ram:3.0f}%")
             self._draw(self.ram_bar, ram, "#58a6ff")
+            gpu = gpu if gpu > 0 else 0
             self.gpu_txt.config(text=f"GPU {gpu:3.0f}%" if gpu > 0 else "GPU  --")
             self._draw(self.gpu_bar, gpu, "#a371f7")
         except tk.TclError: return
@@ -148,9 +147,13 @@ class GUI:
     
     def _stop(self):
         self.running = False
-        if self.core: self.core.running = False
-        try: self.root.destroy()
-        except: pass
+        if self.core:
+            self.core.running = False
+        try:
+            self.root.quit()
+            self.root.destroy()
+        except:
+            pass
     
     def set_listening(self, v=True): self.listening = v
     def set_speaking(self, v=True): self.speaking = v
