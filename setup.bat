@@ -1,4 +1,3 @@
-:: setup.bat — запустить ОДИН раз для установки
 @echo off
 chcp 65001 >nul
 title Установка Джарвиса
@@ -8,33 +7,60 @@ echo   УСТАНОВКА ДЖАРВИСА
 echo ================================================
 echo.
 
-echo [1/5] Установка Python-зависимостей...
-pip install pyaudio faster-whisper edge-tts pygame numpy pystray pillow ollama
-echo   ✓ Готово
+:: Проверка Python
+echo [1/7] Проверка Python...
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo   ✗ Python не найден!
+    echo   Скачайте: https://python.org/downloads
+    pause
+    exit /b
+)
+echo   ✓ Python найден
 
-echo [2/5] Проверка Ollama...
+:: Обновление pip
+echo [2/7] Обновление pip...
+python -m pip install --upgrade pip --quiet
+echo   ✓ pip обновлён
+
+:: Основные зависимости
+echo [3/7] Установка основных библиотек...
+pip install pyaudio faster-whisper edge-tts pygame numpy --quiet
+echo   ✓ Основные библиотеки
+
+:: Wake Word и GUI
+echo [4/7] Установка GUI и трея...
+pip install pystray pillow --quiet
+echo   ✓ GUI и трей
+
+:: Управление системой
+echo [5/7] Установка системных библиотек...
+pip install keyboard pyautogui pyperclip pycaw comtypes --quiet
+echo   ✓ Системные библиотеки
+
+:: Ollama
+echo [6/7] Проверка Ollama...
 where ollama >nul 2>&1
 if errorlevel 1 (
     echo   ! Ollama не установлена!
     echo   Скачайте: https://ollama.com/download
-    pause
-    exit /b
+    echo   После установки запустите: ollama pull llama3.2:3b
+) else (
+    echo   ✓ Ollama найдена
+    echo   Загрузка LLM модели...
+    ollama pull llama3.2:3b
 )
 
-echo [3/5] Загрузка LLM модели...
-ollama pull llama3.2:3b
-echo   ✓ Готово
+:: Иконка
+echo [7/7] Создание иконки...
+python generate_icon.py >nul 2>&1
+echo   ✓ Иконка создана
 
-echo [4/5] Создание иконки...
-python generate_icon.py
-echo   ✓ Готово
-
-echo [5/5] Обучение Wake Word...
-echo   Запустите позже: python train_wakeword.py
 echo.
-
 echo ================================================
 echo   УСТАНОВКА ЗАВЕРШЕНА!
-echo   Запуск: run_jarvis.bat
+echo.
+echo   Запуск Джарвиса: run_jarvis.bat
+echo   Обучение: python train_wakeword.py
 echo ================================================
 pause

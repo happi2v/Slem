@@ -1,7 +1,7 @@
 # jarvis_core.py
 """
 ДЖАРВИС — ГОЛОСОВОЙ АССИСТЕНТ
-v26.0 — открытие сайтов, финальное ядро
+v28.0 — поиск первый, сайты вторые
 """
 import os
 import sys
@@ -25,7 +25,7 @@ STEAM_PATH = r"C:\Program Files (x86)\Steam\Steam.exe"
 # ИМПОРТЫ
 # ============================================================
 print("=" * 55)
-print("  ДЖАРВИС v26.0")
+print("  ДЖАРВИС v28.0")
 print("=" * 55)
 print("  Загрузка модулей...")
 
@@ -127,7 +127,7 @@ class Jarvis:
         try:
             self.rec = VoiceRecognizer(model_size=model_size, device="auto", compute_type="auto")
         except:
-            print("  ⚠ Large не загрузилась, пробую medium...")
+            print("  ⚠ Fallback на medium...")
             self.rec = VoiceRecognizer(model_size="medium", device="auto", compute_type="auto")
         
         info = self.rec.info()
@@ -249,7 +249,8 @@ class Jarvis:
         if self.music and self._mus(cmd): return True
         if self.volume and self._vol(cmd): return True
         if self._apps(cmd): return True
-        if self._sites(cmd): return True
+        if self._search(cmd): return True       # Поиск ПЕРВЫМ
+        if self._sites(cmd): return True        # Сайты ВТОРЫМИ
         if self._time(cmd): return True
         if self._talk(cmd): return True
         
@@ -292,8 +293,7 @@ class Jarvis:
         for prefix in prefixes:
             if cmd.startswith(prefix):
                 text = cmd[len(prefix):].strip()
-                if text:
-                    return self._do_write(text)
+                if text: return self._do_write(text)
         for word in ["напиши", "запиши", "напечатай", "введи"]:
             if word in cmd:
                 parts = cmd.split(word, 1)
@@ -408,7 +408,6 @@ class Jarvis:
     # ПРИЛОЖЕНИЯ
     # ============================================================
     def _apps(self, cmd):
-        # Discord
         if self._has(cmd, "дискорд,discord,дискард,дискор,диска,дискордом,дискорда,дискорде"):
             self._say("Запускаю Discord.")
             path = self._find_discord()
@@ -419,7 +418,6 @@ class Jarvis:
                 self._beep(play_confirm_signal)
             return True
         
-        # Steam
         if self._has(cmd, "стим,steam,игры,стимул,стимом,стиму,стиме,стима"):
             self._say("Запускаю Steam.")
             if self._open_app(STEAM_PATH, "Steam"):
@@ -429,7 +427,6 @@ class Jarvis:
                 self._beep(play_confirm_signal)
             return True
         
-        # Стандартные
         if self._has(cmd, "калькулятор,посчитать,кальк"):
             self._say("Калькулятор.")
             os.system("calc" if os.name == "nt" else "gnome-calculator &")
@@ -458,7 +455,40 @@ class Jarvis:
         return False
     
     # ============================================================
-    # САЙТЫ
+    # ПОИСК В ИНТЕРНЕТЕ (ПЕРВЫМ!)
+    # ============================================================
+    def _search(self, cmd):
+        prefixes = [
+            "найди ", "поищи ", "загугли ", "погугли ",
+            "найди в интернете ", "поищи в интернете ",
+            "что такое ", "кто такой ", "что значит "
+        ]
+        
+        for prefix in prefixes:
+            if cmd.startswith(prefix):
+                query = cmd[len(prefix):].strip()
+                if query:
+                    self._say(f"Ищу {query}.")
+                    webbrowser.open(f"https://www.google.com/search?q={query.replace(' ', '+')}")
+                    self._beep(play_confirm_signal)
+                    return True
+        
+        for engine, url in [
+            ("гугл ", "https://www.google.com/search?q="),
+            ("яндекс ", "https://ya.ru/search?text=")
+        ]:
+            if cmd.startswith(engine):
+                query = cmd[len(engine):].strip()
+                if query:
+                    self._say(f"Ищу {query}.")
+                    webbrowser.open(url + query.replace(" ", "+"))
+                    self._beep(play_confirm_signal)
+                    return True
+        
+        return False
+    
+    # ============================================================
+    # САЙТЫ (ВТОРЫМИ!)
     # ============================================================
     def _sites(self, cmd):
         sites = {
@@ -468,7 +498,6 @@ class Jarvis:
             "телеграм,telegram,тг,веб телеграм": ("Telegram", "https://web.telegram.org"),
             "github,гитхаб,гит хаб,гейтхаб": ("GitHub", "https://github.com"),
             "почта,gmail,мыло,почту,мейл,email": ("Почта", "https://mail.google.com"),
-            "яндекс,яндекса,яндексом,яша": ("Яндекс", "https://ya.ru"),
             "нетфликс,netflix,нетflix": ("Netflix", "https://netflix.com"),
             "твич,twitch,твичь,стрим": ("Twitch", "https://twitch.tv"),
             "чат,chatgpt,чат джипити,гпт,gpt,чаты": ("ChatGPT", "https://chat.openai.com"),
@@ -482,6 +511,7 @@ class Jarvis:
             "авито,avito,авита": ("Авито", "https://avito.ru"),
             "озон,ozon,озоне": ("Ozon", "https://ozon.ru"),
             "вб,wb,вайлдберриз,wildberries": ("Wildberries", "https://wildberries.ru"),
+            "яндекс,яндекса,яндексом,яша": ("Яндекс", "https://ya.ru"),
         }
         
         for words, (name, url) in sites.items():
@@ -510,17 +540,14 @@ class Jarvis:
     def _talk(self, cmd):
         if self._has(cmd, "привет,здравствуй,хай,хелло,добрый,здарова,салют"):
             h = datetime.datetime.now().hour
-            if h < 6: g = "Доброй ночи"
-            elif h < 12: g = "Доброе утро"
-            elif h < 18: g = "Добрый день"
-            else: g = "Добрый вечер"
+            g = "Доброй ночи" if h < 6 else "Доброе утро" if h < 12 else "Добрый день" if h < 18 else "Добрый вечер"
             self._say(f"{g}! Я Джарвис.")
             return True
         if self._has(cmd, "как дела,настроение,как ты,как жизнь,как сам"):
             self._say(random.choice(["Всё в норме.", "Работаю штатно.", "Готов к задачам.", "Отлично."]))
             return True
         if self._has(cmd, "что ты умеешь,помощь,команды,справка,help,что можешь"):
-            self._say("Браузер, YouTube, ВК, Telegram, GitHub, почта, ChatGPT, калькулятор, блокнот, терминал, проводник, Steam, Discord, музыка, громкость, время, дата, написать текст. «пока» — выход.")
+            self._say("Поиск в интернете, сайты, калькулятор, блокнот, терминал, проводник, Steam, Discord, музыка, громкость, время, дата. «пока» — выход.")
             return True
         if self._has(cmd, "кто ты,имя,как зовут,твоё имя"):
             self._say("Я Джарвис — голосовой ассистент.")
@@ -529,29 +556,16 @@ class Jarvis:
             self._say(self._r("thanks"))
             return True
         if self._has(cmd, "шутка,анекдот,пошути,рассмеши,юмор"):
-            jokes = [
-                "31 октября = 25 декабря.",
-                "Сколько программистов вкрутят лампочку? Ни одного.",
-                "Почему Python спокойный? Нет скобок.",
-            ]
+            jokes = ["31 октября = 25 декабря.", "Сколько программистов вкрутят лампочку? Ни одного.", "Почему Python спокойный? Нет скобок."]
             self._say(random.choice(jokes))
             return True
         return False
     
-    # ============================================================
-    # ИНФОРМАЦИЯ
-    # ============================================================
     def _tell_time(self):
         now = datetime.datetime.now()
         h, m = now.hour, now.minute
-        if 11 <= h % 100 <= 14: hw = "часов"
-        elif h % 10 == 1: hw = "час"
-        elif 2 <= h % 10 <= 4: hw = "часа"
-        else: hw = "часов"
-        if 11 <= m <= 14: mw = "минут"
-        elif m % 10 == 1: mw = "минута"
-        elif 2 <= m % 10 <= 4: mw = "минуты"
-        else: mw = "минут"
+        hw = "часов" if 11 <= h % 100 <= 14 else "час" if h % 10 == 1 else "часа" if 2 <= h % 10 <= 4 else "часов"
+        mw = "минут" if 11 <= m <= 14 else "минута" if m % 10 == 1 else "минуты" if 2 <= m % 10 <= 4 else "минут"
         t = f"{h} {hw} ровно" if m == 0 else f"{h} {hw} {m} {mw}"
         self._say(f"Сейчас {t}.")
     
@@ -564,7 +578,6 @@ class Jarvis:
     def _tell_stats(self):
         up = datetime.datetime.now() - self.stats["start"]
         h, m = up.seconds // 3600, (up.seconds % 3600) // 60
-        info = self.rec.info()
         self._say(f"Работаю {h} ч {m} мин. Команд: {self.stats['commands']}.")
     
     # ============================================================
@@ -616,9 +629,7 @@ class Jarvis:
         print("\nОчистка...")
         try: self.rec.close()
         except: pass
-        if self.wakeword:
-            try: self.wakeword.stop()
-            except: pass
+        if self.wakeword: self.wakeword.stop()
         if self.llm: self.llm.clear_history()
         if self.gui and self.gui.tray_icon:
             try: self.gui.tray_icon.stop()
@@ -626,21 +637,12 @@ class Jarvis:
         print("✓ Джарвис отключён.")
 
 
-# ============================================================
-# ЗАПУСК
-# ============================================================
 def main():
-    print(f"\n{'='*55}")
-    print("  ВЫБОР РЕЖИМА")
-    print(f"{'='*55}")
-    print("  1 — Голосовая активация")
-    print("  2 — Ручная (Enter)")
-    print("  3 — Выход")
-    
+    print(f"\n{'='*55}\n  ВЫБОР РЕЖИМА\n{'='*55}")
+    print("  1 — Голосовая активация\n  2 — Ручная\n  3 — Выход")
     try:
         c = input("\n  Выбор [1-3]: ").strip()
     except: return
-    
     if c == "3": return
     
     use_wake = (c == "1")
