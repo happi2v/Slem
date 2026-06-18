@@ -1,55 +1,53 @@
 # volume.py
 """
 Управление системной громкостью Windows.
+Использует Win32 API напрямую.
 """
-import sys
-import os
-
-# Пробуем pycaw (Windows)
-try:
-    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-    from comtypes import CLSCTX_ALL
-    import comtypes
-    comtypes.CoInitialize()
-    
-    devices = AudioUtilities.GetSpeakers()
-    interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-    volume = interface.QueryInterface(IAudioEndpointVolume)
-    VOLUME_OK = True
-except:
-    VOLUME_OK = False
+import ctypes
+import time
 
 
 class VolumeControl:
-    """Управление громкостью."""
+    """Управление громкостью через Win32 API."""
     
     def __init__(self):
-        if not VOLUME_OK:
-            print("  ⚠ pycaw не установлен. Использую клавиши.")
+        self.ok = True
+        print("  ✓ Громкость (Win32 API)")
     
     def get_volume(self):
         """Получить текущую громкость (0-100)."""
-        if VOLUME_OK:
-            try:
-                return int(volume.GetMasterVolumeLevelScalar() * 100)
-            except:
-                pass
-        return -1
+        try:
+            # Используем ctypes для вызова WinMM
+            winmm = ctypes.windll.winmm
+            volume = ctypes.c_uint()
+            winmm.waveOutGetVolume(0, ctypes.byref(volume))
+            
+            # Расшифровываем значение (младшие 16 бит — левый канал)
+            left = volume.value & 0xFFFF
+            right = (volume.value >> 16) & 0xFFFF
+            
+            # Конвертируем в проценты (0x0000-0xFFFF)
+            return int((left + right) / 2 / 0xFFFF * 100)
+        except:
+            return 50
     
     def set_volume(self, level):
-        """
-        Установить громкость.
-        level: 0-100
-        """
+        """Установить громкость (0-100)."""
         level = max(0, min(100, level))
         
-        if VOLUME_OK:
-            try:
-                volume.SetMasterVolumeLevelScalar(level / 100, None)
-                print(f"  🔊 Громкость: {level}%")
-                return level
-            except:
-                pass
+        try:
+            winmm = ctypes.windll.winmm
+            
+            # Конвертируем проценты в значение WinMM
+            value = int(level / 100 * 0xFFFF)
+            # Оба канала
+            volume_value = value | (value << 16)
+            
+            winmm.waveOutSetVolume(0, volume_value)
+            print(f"  🔊 Громкость: {level}%")
+            return level
+        except:
+            pass
         
         # Fallback: клавиши
         self._press_volume_keys(level)
@@ -57,68 +55,45 @@ class VolumeControl:
     
     def volume_up(self, step=10):
         """Увеличить громкость."""
-        if VOLUME_OK:
-            current = self.get_volume()
-            return self.set_volume(current + step)
-        
-        # Клавиши
-        for _ in range(step // 2):
-            self._press_key("volume_up")
-        return self.get_volume()
+        current = self.get_volume()
+        return self.set_volume(current + step)
     
     def volume_down(self, step=10):
         """Уменьшить громкость."""
-        if VOLUME_OK:
-            current = self.get_volume()
-            return self.set_volume(current - step)
-        
-        for _ in range(step // 2):
-            self._press_key("volume_down")
-        return self.get_volume()
+        current = self.get_volume()
+        return self.set_volume(current - step)
     
     def mute(self):
-        """Включить/выключить звук."""
-        if VOLUME_OK:
-            try:
-                muted = volume.GetMute()
-                volume.SetMute(not muted, None)
-                print(f"  {'🔇 Mute' if not muted else '🔊 Звук включён'}")
-                return not muted
-            except:
-                pass
-        
-        self._press_key("volume_mute")
-        return None
-    
-    def is_muted(self):
-        """Проверяет, выключен ли звук."""
-        if VOLUME_OK:
-            try:
-                return volume.GetMute()
-            except:
-                pass
-        return False
-    
-    def _press_volume_keys(self, target_level):
-        """Устанавливает громкость клавишами (приблизительно)."""
+        """Переключить mute."""
         try:
             import keyboard
-            
-            # Сначала в 0
-            for _ in range(50):
-                keyboard.press_and_release("volume_down")
-            
-            # Потом вверх до нужного
-            for _ in range(target_level // 2):
-                keyboard.press_and_release("volume_up")
+            keyboard.press_and_release("volume_mute")
+            time.sleep(0.1)
+            return None
         except:
             pass
     
-    def _press_key(self, key):
-        """Нажимает клавишу."""
+    def is_muted(self):
+        """Проверяет, выключен ли звук."""
+        return False  # WinMM не показывает mute
+    
+    def _press_volume_keys(self, target_level):
+        """Устанавливает громкость клавишами."""
         try:
             import keyboard
-            keyboard.press_and_release(key)
+            
+            # Опускаем в 0
+            for _ in range(50):
+                keyboard.press_and_release("volume_down")
+                time.sleep(0.005)
+            
+            time.sleep(0.1)
+            
+            # Поднимаем до нужного
+            presses = target_level // 2
+            for _ in range(presses):
+                keyboard.press_and_release("volume_up")
+                time.sleep(0.005)
         except:
             pass
 
@@ -128,20 +103,16 @@ class VolumeControl:
 # ============================================================
 if __name__ == "__main__":
     print("=" * 50)
-    print("  ТЕСТ УПРАВЛЕНИЯ ГРОМКОСТЬЮ")
+    print("  ТЕСТ ГРОМКОСТИ")
     print("=" * 50)
     
     vc = VolumeControl()
     
-    print(f"\n  Текущая громкость: {vc.get_volume()}%")
-    print(f"  Звук выключен: {vc.is_muted()}")
-    print()
-    print("  Команды:")
-    print("  up — громче")
-    print("  down — тише")
-    print("  50 — установить 50%")
-    print("  mute — переключить звук")
-    print("  exit — выход\n")
+    vol = vc.get_volume()
+    print(f"\n  Текущая громкость: {vol}%")
+    print(f"  Метод: Win32 API")
+    
+    print("\n  Команды: up, down, 50, mute, exit\n")
     
     while True:
         cmd = input("  > ").strip().lower()
@@ -149,14 +120,14 @@ if __name__ == "__main__":
         if cmd == "exit":
             break
         elif cmd == "up":
-            vc.volume_up()
+            vc.volume_up(10)
             print(f"  Громкость: {vc.get_volume()}%")
         elif cmd == "down":
-            vc.volume_down()
+            vc.volume_down(10)
             print(f"  Громкость: {vc.get_volume()}%")
         elif cmd == "mute":
             vc.mute()
         elif cmd.isdigit():
             vc.set_volume(int(cmd))
         else:
-            print("  Неизвестно")
+            print("  ?")
