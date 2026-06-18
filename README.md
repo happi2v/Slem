@@ -23,7 +23,10 @@
     pip install openwakeword
     pip install pyaudio numpy
     pip install torch
+    pip install pyperclip
     pip install pyautogui keyboard
+    pip install keyboard
+    pip install keyboard pyperclip
     pip install pycaw comtypes
     pip install torch --index-url https://download.pytorch.org/whl/cu121
     # Для CUDA 12.1
