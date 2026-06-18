@@ -1,7 +1,7 @@
 # jarvis_core.py
 """
 ДЖАРВИС — ГОЛОСОВОЙ АССИСТЕНТ
-v22.0 — Steam, Discord, голосовой ввод
+v26.0 — открытие сайтов, финальное ядро
 """
 import os
 import sys
@@ -17,16 +17,15 @@ import glob
 # НАСТРОЙКИ
 # ============================================================
 WAKE_THRESHOLD = 0.35
-MODEL_SIZE = "large"
+MODEL_SIZE = "large-v3"
 LLM_MODEL = "llama3.2:3b"
-
 STEAM_PATH = r"C:\Program Files (x86)\Steam\Steam.exe"
 
 # ============================================================
 # ИМПОРТЫ
 # ============================================================
 print("=" * 55)
-print("  ДЖАРВИС v22.0")
+print("  ДЖАРВИС v26.0")
 print("=" * 55)
 print("  Загрузка модулей...")
 
@@ -125,7 +124,12 @@ class Jarvis:
         
         print(f"\n  Инициализация...")
         
-        self.rec = VoiceRecognizer(model_size=model_size, device="auto", compute_type="auto")
+        try:
+            self.rec = VoiceRecognizer(model_size=model_size, device="auto", compute_type="auto")
+        except:
+            print("  ⚠ Large не загрузилась, пробую medium...")
+            self.rec = VoiceRecognizer(model_size="medium", device="auto", compute_type="auto")
+        
         info = self.rec.info()
         print(f"  Whisper: {info['model']} | {info['device']}")
         
@@ -180,7 +184,7 @@ class Jarvis:
             w = w.strip()
             if w in text:
                 return True
-            if len(w) >= 5 and w[:4] in text:
+            if len(w) >= 6 and w[:5] in text:
                 return True
         return False
     
@@ -189,13 +193,10 @@ class Jarvis:
         return int(match.group(1)) if match else None
     
     def _find_discord(self):
-        """Находит актуальный путь к Discord.exe."""
         base = os.path.expanduser(r"~\AppData\Local\Discord")
-        # Ищем app-* папки
         pattern = os.path.join(base, "app-*", "Discord.exe")
         matches = glob.glob(pattern)
         if matches:
-            # Сортируем по версии (последняя)
             matches.sort(reverse=True)
             return matches[0]
         return None
@@ -205,6 +206,11 @@ class Jarvis:
             os.system(f'start "" "{path}"')
             return True
         return False
+    
+    def _open_site(self, name, url):
+        print(f"  🌐 {name}")
+        webbrowser.open(url)
+        self._beep(play_confirm_signal)
     
     def _type_text(self, text):
         if not CLIPBOARD_OK or not KEYBOARD_OK:
@@ -240,10 +246,11 @@ class Jarvis:
         
         if self._sys(cmd): return self.running
         if self._write(cmd): return True
+        if self.music and self._mus(cmd): return True
         if self.volume and self._vol(cmd): return True
         if self._apps(cmd): return True
+        if self._sites(cmd): return True
         if self._time(cmd): return True
-        if self.music and self._mus(cmd): return True
         if self._talk(cmd): return True
         
         if self.llm:
@@ -282,19 +289,16 @@ class Jarvis:
     # ============================================================
     def _write(self, cmd):
         prefixes = ["напиши ", "запиши ", "напечатай ", "печатай ", "введи ", "текст ", "набрать "]
-        
         for prefix in prefixes:
             if cmd.startswith(prefix):
                 text = cmd[len(prefix):].strip()
                 if text:
                     return self._do_write(text)
-        
         for word in ["напиши", "запиши", "напечатай", "введи"]:
             if word in cmd:
                 parts = cmd.split(word, 1)
                 if len(parts) > 1 and parts[1].strip():
                     return self._do_write(parts[1].strip())
-        
         return False
     
     def _do_write(self, text):
@@ -307,6 +311,51 @@ class Jarvis:
             self._say("Не получилось.")
         self._beep(play_confirm_signal)
         return True
+    
+    # ============================================================
+    # МУЗЫКА
+    # ============================================================
+    def _mus(self, cmd):
+        if self._has(cmd, "музыку,музыка,музыке,музыкой,яндекс,яндекса,яндексе,музыки"):
+            self._say("Открываю Яндекс Музыку.")
+            self.music.open()
+            self._beep(play_confirm_signal)
+            return True
+        if self._has(cmd, "пауза,стоп, pause,останови,поставь на паузу,приостанови,паузу"):
+            self._say("Пауза.")
+            self.music.play_pause()
+            return True
+        if self._has(cmd, "продолжи,играй,плей, play,продолжи музыку,возобнови,дальше играй"):
+            self._say("Продолжаю.")
+            self.music.play_pause()
+            return True
+        if self._has(cmd, "следующий,некст,вперёд,следующий трек,скип,дальше трек,следующая,переключи"):
+            self._say("Следующий трек.")
+            self.music.next_track()
+            return True
+        if self._has(cmd, "предыдущий,назад,прошлый,предыдущий трек,назад трек,предыдущая,верни"):
+            self._say("Предыдущий трек.")
+            self.music.prev_track()
+            return True
+        if self._has(cmd, "лайк,нравится, like,мне нравится,лайкни,лайк трек,сохрани"):
+            self._say("Лайк.")
+            self.music.like()
+            return True
+        if self._has(cmd, "закрой музыку,выключи музыку,останови музыку,хватит музыки,выруби музыку"):
+            self._say("Закрываю музыку.")
+            self.music.close()
+            return True
+        for prefix in ["включи ", "поставь ", "запусти "]:
+            if cmd.startswith(prefix):
+                query = cmd[len(prefix):].strip()
+                skip = ["музыку", "музыка", "песню", "трек", "звук", "громкость", "громче", "тише",
+                        "стим", "steam", "дискорд", "discord", "браузер", "ютуб", "блокнот",
+                        "калькулятор", "терминал", "проводник"]
+                if query and query not in skip:
+                    self._say(f"Ищу {query}.")
+                    self.music.search(query)
+                    return True
+        return False
     
     # ============================================================
     # ГРОМКОСТЬ
@@ -341,7 +390,6 @@ class Jarvis:
             vol = self.volume.volume_down(10)
             self._say(f"Громкость {vol}.")
             return True
-        
         if self._has(cmd, "выключи звук,без звука,мут,mute,отключи звук,заглуши,тишина"):
             self.volume.mute()
             self._say("Звук выключен.")
@@ -350,31 +398,28 @@ class Jarvis:
             self.volume.mute()
             self._say("Звук включён.")
             return True
-        
         if self._has(cmd, "какая громкость,уровень громкости,сколько громкость,текущая,скажи громкость"):
             vol = self.volume.get_volume()
             self._say(f"Громкость {vol} процентов.")
             return True
-        
         return False
     
     # ============================================================
     # ПРИЛОЖЕНИЯ
     # ============================================================
     def _apps(self, cmd):
-        # Discord — ПЕРВЫМ (автопоиск папки app-*)
+        # Discord
         if self._has(cmd, "дискорд,discord,дискард,дискор,диска,дискордом,дискорда,дискорде"):
             self._say("Запускаю Discord.")
-            discord_path = self._find_discord()
-            if discord_path and self._open_app(discord_path, "Discord"):
+            path = self._find_discord()
+            if path and self._open_app(path, "Discord"):
                 self._beep(play_confirm_signal)
             else:
-                # Fallback: команда discord
                 os.system("start discord:")
                 self._beep(play_confirm_signal)
             return True
         
-        # Steam — ВТОРЫМ
+        # Steam
         if self._has(cmd, "стим,steam,игры,стимул,стимом,стиму,стиме,стима"):
             self._say("Запускаю Steam.")
             if self._open_app(STEAM_PATH, "Steam"):
@@ -382,18 +427,6 @@ class Jarvis:
             else:
                 os.system("start steam://open/main")
                 self._beep(play_confirm_signal)
-            return True
-        
-        # Браузеры и сайты
-        if self._has(cmd, "браузер,интернет,веб,гугл,хром"):
-            self._say("Браузер.")
-            webbrowser.open("https://google.com")
-            self._beep(play_confirm_signal)
-            return True
-        if self._has(cmd, "ютуб,youtube,видео,ютюб"):
-            self._say("YouTube.")
-            webbrowser.open("https://youtube.com")
-            self._beep(play_confirm_signal)
             return True
         
         # Стандартные
@@ -422,6 +455,40 @@ class Jarvis:
             os.system("taskmgr" if os.name == "nt" else "gnome-system-monitor &")
             self._beep(play_confirm_signal)
             return True
+        return False
+    
+    # ============================================================
+    # САЙТЫ
+    # ============================================================
+    def _sites(self, cmd):
+        sites = {
+            "браузер,интернет,веб,гугл,хром": ("Браузер", "https://google.com"),
+            "ютуб,youtube,видео,ютюб": ("YouTube", "https://youtube.com"),
+            "вк,вконтакте,vk,вконтакт": ("ВКонтакте", "https://vk.com"),
+            "телеграм,telegram,тг,веб телеграм": ("Telegram", "https://web.telegram.org"),
+            "github,гитхаб,гит хаб,гейтхаб": ("GitHub", "https://github.com"),
+            "почта,gmail,мыло,почту,мейл,email": ("Почта", "https://mail.google.com"),
+            "яндекс,яндекса,яндексом,яша": ("Яндекс", "https://ya.ru"),
+            "нетфликс,netflix,нетflix": ("Netflix", "https://netflix.com"),
+            "твич,twitch,твичь,стрим": ("Twitch", "https://twitch.tv"),
+            "чат,chatgpt,чат джипити,гпт,gpt,чаты": ("ChatGPT", "https://chat.openai.com"),
+            "перевод,переводчик,translate,транслейт": ("Переводчик", "https://translate.google.com"),
+            "карты,карта,навигатор,гугл карты,2гис,2gis": ("Карты", "https://maps.google.com"),
+            "погода,прогноз,weather": ("Погода", "https://yandex.ru/pogoda"),
+            "новости,news,новость": ("Новости", "https://news.google.com"),
+            "реддит,reddit,редит": ("Reddit", "https://reddit.com"),
+            "вики,википедия,wikipedia,википедию": ("Википедия", "https://wikipedia.org"),
+            "одноклассники,ок,однокласники": ("Одноклассники", "https://ok.ru"),
+            "авито,avito,авита": ("Авито", "https://avito.ru"),
+            "озон,ozon,озоне": ("Ozon", "https://ozon.ru"),
+            "вб,wb,вайлдберриз,wildberries": ("Wildberries", "https://wildberries.ru"),
+        }
+        
+        for words, (name, url) in sites.items():
+            if self._has(cmd, words):
+                self._say(f"Открываю {name}.")
+                self._open_site(name, url)
+                return True
         
         return False
     
@@ -435,51 +502,6 @@ class Jarvis:
         if self._has(cmd, "дата,число,сегодня,день,какое число,число сегодня,дата сегодня"):
             self._tell_date()
             return True
-        return False
-    
-    # ============================================================
-    # МУЗЫКА
-    # ============================================================
-    def _mus(self, cmd):
-        if self._has(cmd, "включи музыку,открой музыку,яндекс музыка,запусти музыку,музыка,открой яндекс"):
-            self._say("Открываю Яндекс Музыку.")
-            self.music.open()
-            self._beep(play_confirm_signal)
-            return True
-        if self._has(cmd, "пауза,стоп, pause,останови,поставь на паузу,приостанови"):
-            self._say("Пауза.")
-            self.music.play_pause()
-            return True
-        if self._has(cmd, "продолжи,играй,плей, play,продолжи музыку,возобнови"):
-            self._say("Продолжаю.")
-            self.music.play_pause()
-            return True
-        if self._has(cmd, "следующий,некст,вперёд,следующий трек,скип,дальше трек,следующая"):
-            self._say("Следующий трек.")
-            self.music.next_track()
-            return True
-        if self._has(cmd, "предыдущий,назад,прошлый,предыдущий трек,назад трек,предыдущая"):
-            self._say("Предыдущий трек.")
-            self.music.prev_track()
-            return True
-        if self._has(cmd, "лайк,нравится, like,мне нравится,лайкни"):
-            self._say("Лайк.")
-            self.music.like()
-            return True
-        if self._has(cmd, "закрой музыку,выключи музыку,останови музыку,хватит музыки"):
-            self._say("Закрываю музыку.")
-            self.music.close()
-            return True
-        
-        for prefix in ["включи ", "поставь ", "запусти "]:
-            if cmd.startswith(prefix):
-                query = cmd[len(prefix):].strip()
-                skip = ["музыку", "музыка", "песню", "трек", "звук", "громкость", "громче", "тише",
-                        "стим", "steam", "дискорд", "discord", "браузер", "ютуб"]
-                if query and query not in skip:
-                    self._say(f"Ищу {query}.")
-                    self.music.search(query)
-                    return True
         return False
     
     # ============================================================
@@ -498,7 +520,7 @@ class Jarvis:
             self._say(random.choice(["Всё в норме.", "Работаю штатно.", "Готов к задачам.", "Отлично."]))
             return True
         if self._has(cmd, "что ты умеешь,помощь,команды,справка,help,что можешь"):
-            self._say("Браузер, YouTube, Steam, Discord, калькулятор, блокнот, терминал, проводник, музыка, громкость, время, дата, написать текст. «пока» — выход.")
+            self._say("Браузер, YouTube, ВК, Telegram, GitHub, почта, ChatGPT, калькулятор, блокнот, терминал, проводник, Steam, Discord, музыка, громкость, время, дата, написать текст. «пока» — выход.")
             return True
         if self._has(cmd, "кто ты,имя,как зовут,твоё имя"):
             self._say("Я Джарвис — голосовой ассистент.")
@@ -508,8 +530,8 @@ class Jarvis:
             return True
         if self._has(cmd, "шутка,анекдот,пошути,рассмеши,юмор"):
             jokes = [
-                "31 октября = 25 декабря. Программисты путают Хэллоуин и Рождество.",
-                "Сколько программистов вкрутят лампочку? Ни одного. Это hardware.",
+                "31 октября = 25 декабря.",
+                "Сколько программистов вкрутят лампочку? Ни одного.",
                 "Почему Python спокойный? Нет скобок.",
             ]
             self._say(random.choice(jokes))
@@ -558,12 +580,7 @@ class Jarvis:
     def _run_voice(self):
         self.wakeword.start_listening()
         self._say("Джарвис запущен.")
-        
-        print(f"\n{'='*55}")
-        print(f"  ГОЛОСОВОЙ РЕЖИМ")
-        print(f"  Скажите «Джарвис»")
-        print(f"{'='*55}\n")
-        
+        print(f"\n{'='*55}\n  ГОЛОСОВОЙ РЕЖИМ\n  Скажите «Джарвис»\n{'='*55}\n")
         try:
             while self.running:
                 if self.active:
@@ -579,21 +596,14 @@ class Jarvis:
     
     def _run_manual(self):
         self._say("Джарвис запущен. Нажмите Enter.")
-        
-        print(f"\n{'='*55}")
-        print(f"  РУЧНОЙ РЕЖИМ")
-        print(f"  Enter — команда | «пока» — выход")
-        print(f"{'='*55}\n")
-        
+        print(f"\n{'='*55}\n  РУЧНОЙ РЕЖИМ\n  Enter — команда | «пока» — выход\n{'='*55}\n")
         try:
             while self.running:
                 try: input("▶ Enter...")
                 except EOFError: break
-                
                 self.active = True
                 self._beep(play_listen_signal)
                 print("🎤 Говорите...")
-                
                 cmd = self.rec.listen()
                 if cmd: self.execute(cmd)
                 self.active = False
@@ -647,9 +657,9 @@ def main():
                 try: threshold = max(0.2, min(0.95, float(t)))
                 except: pass
     
-    print("\n  Whisper: 1=tiny 2=base 3=small 4=medium")
-    mc = input("  Выбор [Enter=4]: ").strip()
-    models = {"1":"tiny","2":"base","3":"small","4":"medium"}
+    print("\n  Whisper: 1=tiny 2=base 3=small 4=medium 5=large")
+    mc = input("  Выбор [Enter=5]: ").strip()
+    models = {"1":"tiny","2":"base","3":"small","4":"medium","5":"large-v3"}
     model = models.get(mc, MODEL_SIZE)
     
     jarvis = Jarvis(model_size=model, use_wake=use_wake, wake_threshold=threshold)
