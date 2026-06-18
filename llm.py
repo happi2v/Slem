@@ -1,44 +1,41 @@
 # llm.py
 """
 Модуль для общения с LLM через Ollama.
+Исправлено: не обрезает ответы.
 """
 import ollama
 
 
 class LLM:
-    """Локальная языковая модель."""
+    """Локальная языковая модель через Ollama."""
     
-    def __init__(self, model="llama3.2:3b", system_prompt=None):
+    def __init__(self, model="llama3.2:3b"):
         self.model = model
         
-        if system_prompt is None:
-            self.system_prompt = (
-                "Ты — Джарвис, голосовой ассистент и дворецкий из фильма Железный человек. "
-                "Твой создатель — сэр, ты обращаешься к нему уважительно. "
-                "Ты помогаешь с задачами на компьютере: открыть программы, найти информацию, "
-                "ответить на вопросы, управлять файлами, включать музыку. "
-                "ОТВЕЧАЙ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ. "
-                "Отвечай КРАТКО — не более 2-3 предложений. "
-                "Не используй маркдаун, звёздочки, списки. "
-                "Говори как человек, а не как робот. "
-                "Будь вежливым, но с лёгким сарказмом. "
-                "Не упоминай что ты языковая модель или ИИ. "
-                "Ты — Джарвис, и точка."
-            )
-        else:
-            self.system_prompt = system_prompt
+        self.system_prompt = (
+            "Ты — Джарвис, голосовой ассистент из фильма Железный человек. "
+            "Твой хозяин — сэр. Ты должен быть вежливым, полезным и иногда саркастичным. "
+            "ПРАВИЛА ОТВЕТА: "
+            "1. Отвечай ТОЛЬКО на русском языке. "
+            "2. Отвечай КРАТКО — 1-2 предложения максимум. "
+            "3. Не используй маркдаун, списки, звёздочки, эмодзи. "
+            "4. Не говори что ты ИИ, модель или программа. Ты — Джарвис. "
+            "5. Если не знаешь ответ — скажи честно, но кратко. "
+            "6. Не повторяй вопрос в ответе. "
+            "7. Говори как человек, естественно."
+            "8. ВСЕГДА заканчивай предложение точкой."
+        )
         
         self.history = []
         print(f"  LLM: {model}")
     
-    def ask(self, question, max_tokens=100):
+    def ask(self, question, max_tokens=120):
         """
-        Задаёт вопрос модели.
-        Возвращает ответ строкой.
+        Задаёт вопрос и возвращает ответ.
         """
         messages = [
             {"role": "system", "content": self.system_prompt},
-            *self.history[-6:],  # Последние 6 сообщений для контекста
+            *self.history[-4:],
             {"role": "user", "content": question}
         ]
         
@@ -47,59 +44,79 @@ class LLM:
                 model=self.model,
                 messages=messages,
                 options={
-                    "temperature": 0.7,
+                    "temperature": 0.5,
                     "max_tokens": max_tokens,
                     "top_p": 0.9,
-                    "stop": ["\n\n", "Сэр,"]  # Останавливаем на повторах
+                    "repeat_penalty": 1.2,
+                    "stop": ["\n\n\n"]  # Только на тройном переносе
                 }
             )
             
             answer = response["message"]["content"].strip()
-            
-            # Убираем мусор
-            answer = self._clean_answer(answer)
+            answer = self._clean(answer)
             
             # Сохраняем историю
             self.history.append({"role": "user", "content": question})
             self.history.append({"role": "assistant", "content": answer})
             
-            # Ограничиваем историю
-            if len(self.history) > 20:
-                self.history = self.history[-10:]
+            if len(self.history) > 10:
+                self.history = self.history[-6:]
             
             return answer
             
         except Exception as e:
-            return f"Простите, произошла ошибка. {str(e)[:50]}"
+            return "Простите, я задумался. Повторите вопрос."
     
-    def _clean_answer(self, text):
-        """Очищает ответ от мусора."""
+    def _clean(self, text):
+        """Очищает ответ от мусора и обрезанных слов."""
         # Убираем маркдаун
-        text = text.replace("*", "").replace("#", "").replace("`", "")
+        for char in ['*', '#', '`', '_', '~']:
+            text = text.replace(char, '')
         
-        # Убираем английские фразы
-        lines = text.split("\n")
-        clean_lines = []
-        for line in lines:
-            # Пропускаем строки с английским
-            english_words = ["various", "calendar", "fluent", "try", "tasks", "information"]
-            if any(w in line.lower() for w in english_words):
-                continue
-            clean_lines.append(line)
+        # Убираем типичные английские вставки
+        english_phrases = [
+            "various", "tasks", "calendar", "fluent", "try",
+            "information", "automation", "weather", "forecast",
+            "I can", "I am", "As an", "Let me", "Sure"
+        ]
+        for phrase in english_phrases:
+            text = text.replace(phrase, '')
         
-        text = " ".join(clean_lines)
+        # Убираем пустые строки
+        lines = [l.strip() for l in text.split('\n') if l.strip()]
+        text = ' '.join(lines)
         
-        # Убираем дубликаты
-        sentences = text.split(". ")
-        unique = []
-        for s in sentences:
-            if s not in unique:
-                unique.append(s)
-        text = ". ".join(unique)
+        # Убираем двойные пробелы
+        while '  ' in text:
+            text = text.replace('  ', ' ')
         
-        # Обрезаем до разумной длины
-        if len(text) > 300:
-            text = text[:300] + "..."
+        # Обрезаем до последнего законченного предложения
+        if len(text) > 200:
+            # Ищем последнюю точку, восклицательный или вопросительный знак
+            cut = text[:200]
+            last_sentence_end = -1
+            
+            for char in ['. ', '! ', '? ', '.\n', '!\n', '?\n']:
+                pos = cut.rfind(char)
+                if pos > last_sentence_end:
+                    last_sentence_end = pos
+            
+            if last_sentence_end > 30:
+                text = text[:last_sentence_end + 1].strip()
+            else:
+                # Если нет точки — ищем последний пробел
+                last_space = text[:200].rfind(' ')
+                if last_space > 50:
+                    text = text[:last_space].strip()
+        
+        # Убираем обрезанные слова в конце
+        # Если последнее слово короткое и без гласных — обрезаем
+        words = text.split()
+        if words:
+            last_word = words[-1].strip('.,!?;:')
+            # Если слово из 1-2 букв или выглядит обрезанным
+            if len(last_word) <= 2 and len(words) > 3:
+                text = ' '.join(words[:-1])
         
         return text.strip()
     
@@ -108,7 +125,7 @@ class LLM:
         self.history = []
     
     def change_model(self, model):
-        """Меняет модель."""
+        """Меняет модель Ollama."""
         self.model = model
         self.clear_history()
         print(f"  Модель изменена: {model}")
@@ -124,14 +141,21 @@ if __name__ == "__main__":
     
     llm = LLM()
     
-    print("\n  Задавайте вопросы. 'выход' для завершения.\n")
+    print("\n  Спрашивайте. 'выход' для выхода.\n")
     
     while True:
-        q = input("  Вы: ").strip()
-        if q.lower() in ["выход", "пока", "exit"]:
+        try:
+            q = input("  Вы: ").strip()
+        except (EOFError, KeyboardInterrupt):
             break
+        
+        if q.lower() in ["выход", "пока", "exit", "quit"]:
+            break
+        
+        if not q:
+            continue
         
         answer = llm.ask(q)
         print(f"  Джарвис: {answer}\n")
     
-    print("  До встречи!")
+    print("  До свидания!")
