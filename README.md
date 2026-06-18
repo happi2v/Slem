@@ -10,6 +10,7 @@
     ```bash
     После установки скачайте модель:
     ollama pull llama3.2:3b
+    pip install ollama
     ```
 
 
@@ -36,3 +37,15 @@
     train_wakeword.py
     ```
     pip install ollama
+
+## Запуск:
+1.  Установите необходимые библиотеки:
+    ```bash
+    # Сначала убедитесь, что Ollama запущена
+    ollama serve
+
+    # Или просто ollama уже работает в фоне
+
+    # Запуск Джарвиса
+    python jarvis_core.py
+    ```
