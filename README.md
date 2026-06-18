@@ -30,6 +30,9 @@
     pip install torch --index-url https://download.pytorch.org/whl/cu121
     # Для CUDA 11.8
     pip install torch --index-url https://download.pytorch.org/whl/cu118
+    
+    
+    pip install pystray pillow
     ```
 2.  Обучите модель:
     ```bash
@@ -38,13 +41,23 @@
     ```
 
 ## Запуск:
-1.  Установите необходимые библиотеки:
+1.  перед этим обязательно установите необходимые библиотеки:
     ```bash
-    # Сначала убедитесь, что Ollama запущена
-    ollama serve
+     Первый запуск — установка:
 
-    # Или просто ollama уже работает в фоне
+    Двойной клик на setup.bat
 
-    # Запуск Джарвиса
-    python jarvis_core.py
+    Установит все зависимости и скачает LLM
+
+    Обучение Wake Word:
+
+    Двойной клик на train_wakeword.py
+
+    Или в консоли: python train_wakeword.py
+
+    Каждый день — запуск:
+
+    Двойной клик на run_jarvis.bat
+
+    Джарвис запускается, иконка в трее
     ```
