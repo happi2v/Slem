@@ -1,7 +1,7 @@
 # jarvis_core.py
 """
-ДЖАРВИС - ГОЛОСОВОЙ АССИСТЕНТ
-Финал v4.0 — всё работает
+ДЖАРВИС - ГОЛОСОВОЙ АССИСТЕНТ С LLM
+v5.0 — добавлена языковая модель
 """
 import os
 import sys
@@ -15,12 +15,13 @@ import random
 # ============================================================
 WAKE_THRESHOLD = 0.35
 MODEL_SIZE = "medium"
+LLM_MODEL = "llama3.2:3b"  # Модель Ollama
 
 # ============================================================
 # ИМПОРТЫ
 # ============================================================
 print("=" * 55)
-print("  ДЖАРВИС v4.0")
+print("  ДЖАРВИС v5.0 + LLM")
 print("=" * 55)
 
 print("  Загрузка модулей...")
@@ -54,25 +55,47 @@ try:
 except Exception as e:
     print(f"  ⚠ Wake Word: {e}")
 
+LLM_OK = False
+try:
+    from llm import LLM
+    LLM_OK = True
+    print("  ✓ LLM (Ollama)")
+except Exception as e:
+    print(f"  ⚠ LLM отключён: {e}")
+    print("    Установите: pip install ollama")
+    print("    И: ollama pull llama3.2:3b")
+
 
 # ============================================================
 # ЯДРО
 # ============================================================
 class Jarvis:
-    def __init__(self, model_size=MODEL_SIZE, use_wake=False, wake_threshold=WAKE_THRESHOLD):
+    def __init__(self, model_size=MODEL_SIZE, use_wake=False, 
+                 wake_threshold=WAKE_THRESHOLD, use_llm=True):
         self.running = True
         self.active = False
         self.use_wake = use_wake and WAKE_OK
+        self.use_llm = use_llm and LLM_OK
         
-        # Статистика
         self.stats = {"commands": 0, "wakes": 0, "errors": 0, "start": datetime.datetime.now()}
         
+        print(f"\n  Инициализация...")
+        
         # Распознаватель
-        print(f"\n  Загрузка Whisper «{model_size}»...")
         self.rec = VoiceRecognizer(model_size=model_size, device="auto", compute_type="auto")
         
         # Синтезатор
         self.speaker = VoiceSpeaker(voice="ru-RU-DmitryNeural")
+        
+        # LLM
+        self.llm = None
+        if self.use_llm:
+            try:
+                self.llm = LLM(model=LLM_MODEL)
+                print("  ✓ LLM готова")
+            except Exception as e:
+                print(f"  ⚠ LLM не загрузилась: {e}")
+                self.use_llm = False
         
         # Wake Word
         self.wakeword = None
@@ -80,7 +103,6 @@ class Jarvis:
             print(f"  Wake Word (порог: {wake_threshold})...")
             self.wakeword = VoiceWakeWord(wake_word="джарвис", sensitivity=wake_threshold, debug=False)
             
-            # Берём порог из модели если есть
             if self.wakeword.custom_model and 'threshold' in self.wakeword.custom_model:
                 model_threshold = self.wakeword.custom_model['threshold']
                 self.wakeword.custom_threshold = min(wake_threshold, model_threshold)
@@ -100,7 +122,6 @@ class Jarvis:
             "greet": ["Да, сэр.", "Слушаю.", "К вашим услугам.", "Джарвис на связи.", "Готов."],
             "unknown": ["Не знаю такой команды.", "Не могу выполнить.", "Повторите."],
             "thanks": ["Пожалуйста.", "Рад помочь.", "Не стоит."],
-            "status": ["Всё в норме.", "Работаю.", "Готов к задачам."],
             "bye": ["До свидания.", "Отключаюсь.", "Завершаю работу."]
         }
         
@@ -126,12 +147,10 @@ class Jarvis:
             print(f"{'='*40}")
     
     def _has(self, text, words):
-        """Проверяет наличие любого слова в тексте."""
         for w in words.split(","):
             w = w.strip()
             if w in text:
                 return True
-            # Частичное совпадение (первые 4 буквы)
             if len(w) >= 4 and w[:4] in text:
                 return True
         return False
@@ -158,7 +177,7 @@ class Jarvis:
             return False
         
         # ========== ПРИЛОЖЕНИЯ ==========
-        if self._has(cmd, "браузер,интернет,веб,гугл,открой браузер"):
+        if self._has(cmd, "браузер,интернет,веб,гугл"):
             self._say("Запускаю браузер.")
             webbrowser.open("https://google.com")
             self._beep(play_confirm_signal)
@@ -176,19 +195,19 @@ class Jarvis:
             self._beep(play_confirm_signal)
             return True
         
-        if self._has(cmd, "блокнот,notepad,заметки,блокно,записи"):
+        if self._has(cmd, "блокнот,notepad,заметки"):
             self._say("Блокнот.")
             os.system("notepad" if os.name == "nt" else "gedit &")
             self._beep(play_confirm_signal)
             return True
         
-        if self._has(cmd, "терминал,консоль,cmd,командная"):
+        if self._has(cmd, "терминал,консоль,cmd"):
             self._say("Терминал.")
             os.system("start cmd" if os.name == "nt" else "gnome-terminal &")
             self._beep(play_confirm_signal)
             return True
         
-        if self._has(cmd, "проводник,файлы,папки,провод"):
+        if self._has(cmd, "проводник,файлы,папки"):
             self._say("Проводник.")
             os.system("explorer ." if os.name == "nt" else "nautilus . &")
             self._beep(play_confirm_signal)
@@ -201,7 +220,7 @@ class Jarvis:
             return True
         
         # ========== ВРЕМЯ / ДАТА ==========
-        if self._has(cmd, "время,который час,часы,сколько время"):
+        if self._has(cmd, "время,который час,часы"):
             self._tell_time()
             return True
         
@@ -210,43 +229,16 @@ class Jarvis:
             return True
         
         # ========== СТАТИСТИКА ==========
-        if self._has(cmd, "статистика,стата,аптайм,сколько работаешь"):
+        if self._has(cmd, "статистика,стата,аптайм"):
             self._tell_stats()
             return True
         
-        # ========== ОБЩЕНИЕ ==========
-        if self._has(cmd, "привет,здравствуй,хай,хелло,добрый"):
-            h = datetime.datetime.now().hour
-            if h < 6: g = "Доброй ночи"
-            elif h < 12: g = "Доброе утро"
-            elif h < 18: g = "Добрый день"
-            else: g = "Добрый вечер"
-            self._say(f"{g}! Я Джарвис.")
-            return True
-        
-        if self._has(cmd, "как дела,настроение,как ты"):
-            self._say(self._r("status"))
-            return True
-        
-        if self._has(cmd, "что ты умеешь,помощь,команды,справка,help"):
-            self._say("Браузер, YouTube, калькулятор, блокнот, терминал, проводник. Время, дата. «пока» — выход.")
-            return True
-        
-        if self._has(cmd, "кто ты,имя,как зовут"):
-            self._say("Я Джарвис — голосовой ассистент.")
-            return True
-        
-        if self._has(cmd, "спасибо,благодарю,молодец,красава"):
-            self._say(self._r("thanks"))
-            return True
-        
-        if self._has(cmd, "шутка,анекдот,пошути"):
-            jokes = [
-                "31 октября = 25 декабря. Программисты путают Хэллоуин и Рождество.",
-                "Сколько программистов вкрутят лампочку? Ни одного. Это hardware.",
-                "Почему Python спокойный? Нет скобок.",
-            ]
-            self._say(random.choice(jokes))
+        # ========== LLM ==========
+        if self.use_llm and self.llm:
+            print("  🤖 LLM думает...")
+            answer = self.llm.ask(cmd)
+            print(f"  Джарвис: {answer}")
+            self._say(answer)
             return True
         
         # ========== НЕИЗВЕСТНО ==========
@@ -254,10 +246,6 @@ class Jarvis:
         self._beep(play_error_signal)
         self.stats["errors"] += 1
         return True
-    
-    # ============================================================
-    # ВСПОМОГАТЕЛЬНЫЕ
-    # ============================================================
     
     def _tell_time(self):
         now = datetime.datetime.now()
@@ -277,11 +265,7 @@ class Jarvis:
         up = datetime.datetime.now() - self.stats["start"]
         h, m = up.seconds // 3600, (up.seconds % 3600) // 60
         info = self.rec.info()
-        self._say(f"Работаю {h} ч {m} мин. Команд: {self.stats['commands']}. {info['model']} на {info['device']}.")
-    
-    # ============================================================
-    # ГЛАВНЫЙ ЦИКЛ
-    # ============================================================
+        self._say(f"Работаю {h} ч {m} мин. Команд: {self.stats['commands']}. {info['model']} на {info['device']}. LLM: {'да' if self.use_llm else 'нет'}.")
     
     def run(self):
         if self.use_wake and self.wakeword:
@@ -294,7 +278,7 @@ class Jarvis:
         self._say("Джарвис запущен.")
         
         print(f"\n{'='*55}")
-        print(f"  ГОЛОСОВОЙ РЕЖИМ")
+        print(f"  ГОЛОСОВОЙ РЕЖИМ + LLM")
         print(f"  Скажите «Джарвис» — я отвечу")
         print(f"  Ctrl+C — выход")
         print(f"{'='*55}\n")
@@ -320,7 +304,7 @@ class Jarvis:
         self._say("Джарвис запущен. Нажмите Enter.")
         
         print(f"\n{'='*55}")
-        print(f"  РУЧНОЙ РЕЖИМ")
+        print(f"  РУЧНОЙ РЕЖИМ + LLM")
         print(f"  Enter — команда | «пока» — выход")
         print(f"{'='*55}\n")
         
@@ -354,6 +338,8 @@ class Jarvis:
             if self.wakeword:
                 self.wakeword.stop()
         except: pass
+        if self.llm:
+            self.llm.clear_history()
         print("✓ Джарвис отключён.")
 
 
@@ -382,7 +368,6 @@ def main():
     if use_wake:
         if not os.path.exists("models/джарвис_model.json"):
             print("\n  ! Модель не найдена.")
-            print("  python train_wakeword.py")
             if input("  Ручной режим? [y/n]: ").lower() != 'y':
                 return
             use_wake = False
