@@ -46,6 +46,28 @@
 ---
 
 ## 🔧 Установка
+Автоматическая
+```bash
+setup.bat
+```
+Ручная
+```bash
+# Основные зависимости
+pip install pyaudio faster-whisper edge-tts pygame numpy
+
+# GUI и трей
+pip install pystray pillow
+
+# Системные
+pip install keyboard pyautogui pyperclip
+
+# Мониторинг
+pip install psutil gputil
+
+# Ollama
+# Скачайте с https://ollama.com/download
+ollama pull llama3.2:3b
+```
 
 
 
@@ -64,16 +86,7 @@ python train_wakeword.py
 
 # 4. Запустите
 python jarvis_core.py
+```
 
 
 
-
-
-
-
-
-
-git add .
-git commit -m ""
-git push origin "checkpoint name"
-git checkout master
