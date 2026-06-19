@@ -45,6 +45,16 @@
 
 ---
 
+## 📋 Требования
+```bash
+ОС: Windows 10/11
+Python: 3.10+
+GPU: NVIDIA с CUDA (опционально)
+RAM: 8+ ГБ
+Микрофон
+Ollama (для LLM)
+```
+
 ## 🔧 Установка
 Автоматическая
 ```bash
@@ -69,10 +79,7 @@ pip install psutil gputil
 ollama pull llama3.2:3b
 ```
 
-
-
 ## ⚡ Быстрый старт
-
 ```bash
 # 1. Клонируйте репозиторий
 git clone https://github.com/yourusername/jarvis.git
@@ -88,5 +95,16 @@ python train_wakeword.py
 python jarvis_core.py
 ```
 ## 🎮 Использование
+```bash
+# Запуск в один клик
+run_jarvis.bat
 
+# Или через Python
+python jarvis_core.py
 
+# Обучение Wake Word
+python train_wakeword.py
+
+# Тестирование
+python test_all.py
+```
