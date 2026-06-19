@@ -87,6 +87,6 @@ python train_wakeword.py
 # 4. Запустите
 python jarvis_core.py
 ```
-
+## 🎮 Использование
 
 
