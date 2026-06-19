@@ -6,14 +6,15 @@ echo ================================================
 echo   УДАЛЕНИЕ ДЖАРВИСА
 echo ================================================
 echo.
-
 echo   Внимание! Будут удалены:
-echo   - Все файлы проекта
-echo   - Виртуальное окружение (venv)
-echo   - Папка с моделями
+echo   - Python-зависимости
+echo   - Папка models
+echo   - Файлы кэша и логов
+echo.
+echo   Файлы проекта НЕ удаляются.
 echo.
 
-choice /c YN /m "  Вы уверены? (Y - да, N - нет)"
+choice /c YN /m "  Продолжить? (Y - да, N - нет)"
 if errorlevel 2 goto :cancel
 if errorlevel 1 goto :uninstall
 
@@ -21,48 +22,45 @@ if errorlevel 1 goto :uninstall
 echo.
 echo   Удаление...
 
-:: Удаление Python-пакетов
-choice /c YN /m "  Удалить Python-зависимости? (Y/N)"
-if errorlevel 2 goto :skip_pip
-if errorlevel 1 (
-    echo   Удаляю пакеты...
-    pip uninstall pyaudio faster-whisper edge-tts pygame numpy -y >nul 2>&1
-    pip uninstall pystray pillow keyboard pyautogui pyperclip -y >nul 2>&1
-    pip uninstall pycaw comtypes ollama -y >nul 2>&1
-    echo   ✓ Пакеты удалены
-)
+:: Python-зависимости
+echo [1/3] Удаление Python-зависимостей...
+pip uninstall pyaudio faster-whisper edge-tts numpy -y >nul 2>&1
+pip uninstall keyboard pyautogui pyperclip -y >nul 2>&1
+pip uninstall psutil gputil pillow -y >nul 2>&1
+pip uninstall ollama -y >nul 2>&1
+echo   ✓ Зависимости удалены
 
-:skip_pip
-:: Удаление виртуального окружения
-if exist "venv" (
-    echo   Удаляю venv...
-    rmdir /s /q "venv"
-    echo   ✓ venv удалён
-)
-
-:: Удаление моделей
+:: Модели
+echo [2/3] Удаление моделей...
 if exist "models" (
-    echo   Удаляю модели...
     rmdir /s /q "models"
-    echo   ✓ Модели удалены
+    echo   ✓ Папка models удалена
+) else (
+    echo   • Папка models не найдена
 )
 
-:: Удаление иконки
-if exist "jarvis_icon.png" (
-    del /q "jarvis_icon.png"
-    echo   ✓ Иконка удалена
-)
+:: Временные файлы
+echo [3/3] Очистка временных файлов...
+if exist "*.mp3" del /q "*.mp3" >nul 2>&1
+if exist "*.wav" del /q "*.wav" >nul 2>&1
+if exist "jarvis_icon.png" del /q "jarvis_icon.png" >nul 2>&1
+if exist "test_tts.mp3" del /q "test_tts.mp3" >nul 2>&1
+echo   ✓ Временные файлы удалены
 
-:: Удаление ярлыка с рабочего стола
+:: Ярлык
 if exist "%userprofile%\Desktop\Джарвис.lnk" (
     del /q "%userprofile%\Desktop\Джарвис.lnk"
-    echo   ✓ Ярлык удалён
+    echo   ✓ Ярлык с рабочего стола удалён
 )
 
 echo.
 echo ================================================
-echo   ДЖАРВИС ПОЛНОСТЬЮ УДАЛЁН
+echo   ДЖАРВИС УДАЛЁН
 echo ================================================
+echo.
+echo   Файлы проекта сохранены.
+echo   Для полного удаления удалите папку вручную.
+echo.
 goto :end
 
 :cancel

@@ -8,7 +8,7 @@ echo ================================================
 echo.
 
 :: Проверка Python
-echo [1/7] Проверка Python...
+echo [1/6] Проверка Python...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo   ✗ Python не найден!
@@ -16,51 +16,55 @@ if errorlevel 1 (
     pause
     exit /b
 )
-echo   ✓ Python найден
+for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PYVER=%%v
+echo   ✓ Python %PYVER%
 
 :: Обновление pip
-echo [2/7] Обновление pip...
+echo [2/6] Обновление pip...
 python -m pip install --upgrade pip --quiet
 echo   ✓ pip обновлён
 
 :: Основные зависимости
-echo [3/7] Установка основных библиотек...
-pip install pyaudio faster-whisper edge-tts pygame numpy --quiet
+echo [3/6] Установка основных библиотек...
+pip install pyaudio faster-whisper edge-tts numpy --quiet
+if errorlevel 1 (
+    echo   ✗ Ошибка установки
+    pause
+    exit /b
+)
 echo   ✓ Основные библиотеки
 
-:: Wake Word и GUI
-echo [4/7] Установка GUI и трея...
-pip install pystray pillow --quiet
-echo   ✓ GUI и трей
-
-:: Управление системой
-echo [5/7] Установка системных библиотек...
-pip install keyboard pyautogui pyperclip pycaw comtypes --quiet
+:: Системные библиотеки
+echo [4/6] Установка системных библиотек...
+pip install keyboard pyautogui pyperclip --quiet
+pip install psutil gputil --quiet
 echo   ✓ Системные библиотеки
 
+:: GUI
+echo [5/6] Установка GUI...
+pip install pillow --quiet
+echo   ✓ GUI
+
 :: Ollama
-echo [6/7] Проверка Ollama...
+echo [6/6] Проверка Ollama...
 where ollama >nul 2>&1
 if errorlevel 1 (
-    echo   ! Ollama не установлена!
+    echo   ! Ollama не установлена
     echo   Скачайте: https://ollama.com/download
-    echo   После установки запустите: ollama pull llama3.2:3b
+    echo   После установки: ollama pull llama3.2:3b
 ) else (
     echo   ✓ Ollama найдена
     echo   Загрузка LLM модели...
     ollama pull llama3.2:3b
 )
 
-:: Иконка
-echo [7/7] Создание иконки...
-python generate_icon.py >nul 2>&1
-echo   ✓ Иконка создана
-
+:: Готово
 echo.
 echo ================================================
 echo   УСТАНОВКА ЗАВЕРШЕНА!
 echo.
-echo   Запуск Джарвиса: run_jarvis.bat
 echo   Обучение: python train_wakeword.py
+echo   Запуск:   python jarvis_core.py
+echo             run_jarvis.bat
 echo ================================================
 pause

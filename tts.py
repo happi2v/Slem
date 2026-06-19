@@ -12,18 +12,12 @@ class VoiceSpeaker:
     """Синтезатор речи."""
     
     def __init__(self, voice="ru-RU-DmitryNeural", speed="+10%", pitch="-10Hz"):
-        """
-        voice: ru-RU-DmitryNeural — мужской голос
-        speed: +10% — быстрее
-        pitch: -10Hz — ниже тоном
-        """
         self.voice = voice
         self.speed = speed
         self.pitch = pitch
         print(f"Синтезатор речи готов. Голос: {self.voice} (speed: {self.speed})")
     
     def speak(self, text):
-        """Произносит текст."""
         if not text:
             return
         
@@ -31,7 +25,6 @@ class VoiceSpeaker:
         
         try:
             mp3_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jarvis_speech.mp3")
-            
             try: os.remove(mp3_path)
             except: pass
             
@@ -55,19 +48,3 @@ class VoiceSpeaker:
     def greet(self): self.speak_async("К вашим услугам, сэр.")
     def confirm(self): self.speak_async("Выполняю.")
     def farewell(self): self.speak_async("До свидания, сэр.")
-
-
-if __name__ == "__main__":
-    print("=" * 50)
-    print("  ТЕСТ TTS")
-    print("=" * 50)
-    
-    speaker = VoiceSpeaker()
-    
-    print("\n  Говорю приветствие...")
-    speaker.greet()
-    
-    print("  Жду 3 секунды...")
-    time.sleep(3)
-    
-    print("\n  ✓ Тест завершён")
