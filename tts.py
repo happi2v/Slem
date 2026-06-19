@@ -1,63 +1,73 @@
 # tts.py
-import asyncio
-import io
+"""
+Синтез речи — Edge-TTS, мужской голос Дмитрий.
+"""
+import os
+import time
+import subprocess
 import threading
-import pygame
-import edge_tts
+
 
 class VoiceSpeaker:
-    def __init__(self, voice="ru-RU-DmitryNeural"):
+    """Синтезатор речи."""
+    
+    def __init__(self, voice="ru-RU-DmitryNeural", speed="+10%", pitch="-10Hz"):
         """
-        Инициализация синтезатора речи.
-        Доступные русские голоса (можно менять):
-        - ru-RU-DmitryNeural (мужской, спокойный)
-        - ru-RU-SvetlanaNeural (женский)
-        - ru-RU-DariyaNeural (женский, мягкий)
+        voice: ru-RU-DmitryNeural — мужской голос
+        speed: +10% — быстрее
+        pitch: -10Hz — ниже тоном
         """
         self.voice = voice
-        # Инициализируем pygame микшер для воспроизведения
-        pygame.mixer.init()
-        print(f"Синтезатор речи готов. Голос: {voice}")
-        
-    def _play_audio(self, audio_data):
-        """Воспроизводит mp3-данные из памяти."""
-        # Загружаем аудио из объекта BytesIO
-        sound = pygame.mixer.Sound(io.BytesIO(audio_data))
-        sound.play()
-        # Ждём окончания воспроизведения
-        pygame.time.wait(int(sound.get_length() * 1000))
-        
+        self.speed = speed
+        self.pitch = pitch
+        print(f"Синтезатор речи готов. Голос: {self.voice} (speed: {self.speed})")
+    
     def speak(self, text):
-        """Синтезирует и произносит текст вслух (блокирующий вызов)."""
+        """Произносит текст."""
         if not text:
             return
-            
+        
         print(f"Джарвис: {text}")
         
-        async def generate_and_play():
-            # Создаём объект Communicate для синтеза
-            communicate = edge_tts.Communicate(text, self.voice)
-            # Собираем все аудио-чанки в один байтовый массив
-            audio_chunks = []
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_chunks.append(chunk["data"])
+        try:
+            mp3_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jarvis_speech.mp3")
             
-            audio_data = b''.join(audio_chunks)
-            return audio_data
-        
-        # Запускаем асинхронную функцию и получаем результат
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        audio_data = loop.run_until_complete(generate_and_play())
-        loop.close()
-        
-        # Воспроизводим
-        self._play_audio(audio_data)
+            try: os.remove(mp3_path)
+            except: pass
+            
+            safe_text = text.replace('"', '')
+            
+            cmd = f'edge-tts --voice {self.voice} --rate={self.speed} --pitch={self.pitch} --text "{safe_text}" --write-media "{mp3_path}"'
+            subprocess.run(cmd, capture_output=True, text=True, shell=True, timeout=15)
+            
+            time.sleep(0.3)
+            
+            if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0:
+                os.system(f'start "" "{mp3_path}"')
+                
+        except Exception as e:
+            print(f"  ⚠ Ошибка: {e}")
     
     def speak_async(self, text):
-        """Произносит текст в отдельном потоке (не блокирует программу)."""
-        thread = threading.Thread(target=self.speak, args=(text,))
-        thread.daemon = True
-        thread.start()
-        return thread
+        t = threading.Thread(target=self.speak, args=(text,), daemon=True)
+        t.start()
+    
+    def greet(self): self.speak_async("К вашим услугам, сэр.")
+    def confirm(self): self.speak_async("Выполняю.")
+    def farewell(self): self.speak_async("До свидания, сэр.")
+
+
+if __name__ == "__main__":
+    print("=" * 50)
+    print("  ТЕСТ TTS")
+    print("=" * 50)
+    
+    speaker = VoiceSpeaker()
+    
+    print("\n  Говорю приветствие...")
+    speaker.greet()
+    
+    print("  Жду 3 секунды...")
+    time.sleep(3)
+    
+    print("\n  ✓ Тест завершён")
