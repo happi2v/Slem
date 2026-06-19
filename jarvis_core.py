@@ -1,7 +1,7 @@
 # jarvis_core.py
 """
 ДЖАРВИС — ГОЛОСОВОЙ АССИСТЕНТ
-v41.0 — без Яндекс Музыки
+v42.0 — быстрый отклик
 """
 import os
 import sys
@@ -18,7 +18,7 @@ LLM_MODEL = "llama3.2:3b"
 STEAM_PATH = r"C:\Program Files (x86)\Steam\Steam.exe"
 
 print("=" * 55)
-print("  ДЖАРВИС v41.0")
+print("  ДЖАРВИС v42.0")
 print("=" * 55)
 print("  Загрузка модулей...")
 
@@ -121,7 +121,7 @@ class Jarvis:
     
     def _say(self, text):
         if self.gui: self.gui.set_speaking(True)
-        self.speaker.speak(text)
+        self.speaker.speak(text)  # Асинхронный, не ждёт
     
     def _r(self, key): return random.choice(self.p.get(key, ["..."]))
     def _beep(self, func):

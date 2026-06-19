@@ -1,7 +1,7 @@
 # llm.py
 """
 Модуль для общения с LLM через Ollama.
-Исправлено: не обрезает ответы.
+Быстрые ответы.
 """
 import ollama
 
@@ -17,25 +17,24 @@ class LLM:
             "Твой хозяин — сэр. Ты должен быть вежливым, полезным и иногда саркастичным. "
             "ПРАВИЛА ОТВЕТА: "
             "1. Отвечай ТОЛЬКО на русском языке. "
-            "2. Отвечай КРАТКО — 1-2 предложения максимум. "
+            "2. Отвечай КРАТКО — 1 предложение максимум. "
             "3. Не используй маркдаун, списки, звёздочки, эмодзи. "
             "4. Не говори что ты ИИ, модель или программа. Ты — Джарвис. "
             "5. Если не знаешь ответ — скажи честно, но кратко. "
             "6. Не повторяй вопрос в ответе. "
             "7. Говори как человек, естественно."
-            "8. ВСЕГДА заканчивай предложение точкой."
         )
         
         self.history = []
         print(f"  LLM: {model}")
     
-    def ask(self, question, max_tokens=120):
+    def ask(self, question, max_tokens=50):
         """
         Задаёт вопрос и возвращает ответ.
         """
         messages = [
             {"role": "system", "content": self.system_prompt},
-            *self.history[-4:],
+            *self.history[-2:],  # Только 2 последних сообщения
             {"role": "user", "content": question}
         ]
         
@@ -47,8 +46,8 @@ class LLM:
                     "temperature": 0.5,
                     "max_tokens": max_tokens,
                     "top_p": 0.9,
-                    "repeat_penalty": 1.2,
-                    "stop": ["\n\n\n"]  # Только на тройном переносе
+                    "repeat_penalty": 1.1,
+                    "stop": ["\n", "\n\n", "Сэр:", "Джарвис:"]
                 }
             )
             
@@ -59,27 +58,23 @@ class LLM:
             self.history.append({"role": "user", "content": question})
             self.history.append({"role": "assistant", "content": answer})
             
-            if len(self.history) > 10:
-                self.history = self.history[-6:]
+            # Держим историю короткой
+            if len(self.history) > 6:
+                self.history = self.history[-4:]
             
             return answer
             
         except Exception as e:
-            return "Простите, я задумался. Повторите вопрос."
+            return "Простите, я задумался."
     
     def _clean(self, text):
-        """Очищает ответ от мусора и обрезанных слов."""
-        # Убираем маркдаун
+        """Очищает ответ."""
         for char in ['*', '#', '`', '_', '~']:
             text = text.replace(char, '')
         
-        # Убираем типичные английские вставки
-        english_phrases = [
-            "various", "tasks", "calendar", "fluent", "try",
-            "information", "automation", "weather", "forecast",
-            "I can", "I am", "As an", "Let me", "Sure"
-        ]
-        for phrase in english_phrases:
+        # Убираем английские фразы
+        english = ["various", "tasks", "calendar", "fluent", "I can", "I am", "As an"]
+        for phrase in english:
             text = text.replace(phrase, '')
         
         # Убираем пустые строки
@@ -90,50 +85,27 @@ class LLM:
         while '  ' in text:
             text = text.replace('  ', ' ')
         
-        # Обрезаем до последнего законченного предложения
-        if len(text) > 200:
-            # Ищем последнюю точку, восклицательный или вопросительный знак
-            cut = text[:200]
-            last_sentence_end = -1
-            
-            for char in ['. ', '! ', '? ', '.\n', '!\n', '?\n']:
-                pos = cut.rfind(char)
-                if pos > last_sentence_end:
-                    last_sentence_end = pos
-            
-            if last_sentence_end > 30:
-                text = text[:last_sentence_end + 1].strip()
-            else:
-                # Если нет точки — ищем последний пробел
-                last_space = text[:200].rfind(' ')
-                if last_space > 50:
-                    text = text[:last_space].strip()
+        # Обрезаем до первой точки
+        if '.' in text[:100]:
+            text = text.split('.')[0] + '.'
         
-        # Убираем обрезанные слова в конце
-        # Если последнее слово короткое и без гласных — обрезаем
-        words = text.split()
-        if words:
-            last_word = words[-1].strip('.,!?;:')
-            # Если слово из 1-2 букв или выглядит обрезанным
-            if len(last_word) <= 2 and len(words) > 3:
-                text = ' '.join(words[:-1])
+        # Максимум 150 символов
+        if len(text) > 150:
+            text = text[:147] + '...'
         
         return text.strip()
     
     def clear_history(self):
-        """Очищает историю диалога."""
+        """Очищает историю."""
         self.history = []
     
     def change_model(self, model):
-        """Меняет модель Ollama."""
+        """Меняет модель."""
         self.model = model
         self.clear_history()
         print(f"  Модель изменена: {model}")
 
 
-# ============================================================
-# ТЕСТ
-# ============================================================
 if __name__ == "__main__":
     print("=" * 50)
     print("  ТЕСТ LLM")
@@ -149,7 +121,7 @@ if __name__ == "__main__":
         except (EOFError, KeyboardInterrupt):
             break
         
-        if q.lower() in ["выход", "пока", "exit", "quit"]:
+        if q.lower() in ["выход", "пока", "exit"]:
             break
         
         if not q:

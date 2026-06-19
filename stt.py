@@ -1,4 +1,8 @@
-# stt.py — исправленный
+# stt.py
+"""
+Распознавание речи — оптимизировано под large-v3 на GPU.
+Быстрый отклик.
+"""
 import pyaudio
 import numpy as np
 import sys
@@ -27,12 +31,12 @@ class VoiceRecognizer:
         self.FORMAT = pyaudio.paInt16
         self.CHANNELS = 1
         
-        # VAD — ИСПРАВЛЕНО
-        self.silence_threshold = 150       # Ниже порог (было 300)
-        self.silence_frames_stop = 20      # Дольше ждём (было 10)
-        self.max_record_frames = 200       # Больше максимум
-        self.min_speech_frames = 2         # Меньше минимум (было 4)
-        self.padding_frames = 8
+        # VAD — БЫСТРЫЙ
+        self.silence_threshold = 400
+        self.silence_frames_stop = 8      # 0.5 сек (было 15)
+        self.max_record_frames = 120      # ~7 сек (было 200)
+        self.min_speech_frames = 3        # 0.2 сек (было 4)
+        self.padding_frames = 5
         
         self.model = None
         self._load_model()
@@ -76,8 +80,8 @@ class VoiceRecognizer:
             self.model_size = "medium"
             print(f"  ✓ medium")
     
-    def listen(self, timeout=8):
-        """Слушает и распознаёт."""
+    def listen(self, timeout=5):
+        """Слушает и распознаёт — быстро."""
         stream = self.audio.open(
             format=self.FORMAT, channels=self.CHANNELS,
             rate=self.RATE, input=True, frames_per_buffer=self.CHUNK
@@ -89,7 +93,6 @@ class VoiceRecognizer:
         speaking = False
         silence_count = 0
         speech_count = 0
-        max_vol = 0
         
         pre_buffer = []
         
@@ -98,7 +101,6 @@ class VoiceRecognizer:
                 data = stream.read(self.CHUNK, exception_on_overflow=False)
                 chunk = np.frombuffer(data, dtype=np.int16)
                 volume = np.abs(chunk).mean()
-                max_vol = max(max_vol, volume)
                 
                 if volume > self.silence_threshold:
                     if not speaking:
@@ -119,7 +121,6 @@ class VoiceRecognizer:
                         silence_count += 1
                         frames.append(data)
                         
-                        # Останавливаем только если была речь и достаточно тишины
                         if speech_count >= self.min_speech_frames and silence_count >= self.silence_frames_stop:
                             print(" ■", end="", flush=True)
                             break
@@ -127,16 +128,11 @@ class VoiceRecognizer:
             stream.stop_stream()
             stream.close()
         
-        # Убираем хвост тишины
-        if speaking and silence_count > 0:
-            frames = frames[:-silence_count]
-        
-        dur = len(frames) * self.CHUNK / self.RATE
-        
         if not frames or speech_count < self.min_speech_frames:
-            print(f" ✗ (речь:{speech_count}, громк:{max_vol:.0f})", flush=True)
+            print(" ✗", flush=True)
             return ""
         
+        dur = len(frames) * self.CHUNK / self.RATE
         print(f" {dur:.1f}с", flush=True)
         
         audio_bytes = b''.join(frames)
@@ -151,7 +147,7 @@ class VoiceRecognizer:
         return self._transcribe(audio_float)
     
     def _transcribe(self, audio):
-        """Распознавание."""
+        """Распознавание — быстро."""
         try:
             print("🧠 ...", end="", flush=True)
             start = time.time()

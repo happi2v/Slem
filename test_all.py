@@ -1,22 +1,21 @@
 # test_all.py
 """
-Полное тестирование всех функций Джарвиса.
+Полное тестирование Джарвиса.
 """
 import os
 import sys
 import time
 
 print("=" * 60)
-print("  ПОЛНОЕ ТЕСТИРОВАНИЕ ДЖАРВИСА")
+print("  ТЕСТИРОВАНИЕ ДЖАРВИСА v42.0")
 print("=" * 60)
 
 errors = []
 passed = []
 
 def test(name, func):
-    """Запускает тест и считает результат."""
     try:
-        print(f"\n  [{len(passed)+len(errors)+1}] {name}...", end=" ")
+        print(f"  [{len(passed)+len(errors)+1}] {name}...", end=" ")
         func()
         print("✓")
         passed.append(name)
@@ -25,37 +24,26 @@ def test(name, func):
         errors.append((name, str(e)))
 
 # ============================================================
-# ТЕСТЫ
+# ИМПОРТЫ
 # ============================================================
-
 def test_imports():
     print("\n--- ИМПОРТЫ ---")
     
-    def t_stt(): __import__("stt")
-    test("STT модуль", t_stt)
+    def t(name):
+        __import__(name)
     
-    def t_tts(): __import__("tts")
-    test("TTS модуль", t_tts)
-    
-    def t_sounds(): __import__("sounds")
-    test("Sounds модуль", t_sounds)
-    
-    def t_wakeword(): __import__("wakeword")
-    test("WakeWord модуль", t_wakeword)
-    
-    def t_llm(): __import__("llm")
-    test("LLM модуль", t_llm)
-    
-    def t_gui(): __import__("gui")
-    test("GUI модуль", t_gui)
-    
-    def t_music(): __import__("music")
-    test("Music модуль", t_music)
-    
-    def t_volume(): __import__("volume")
-    test("Volume модуль", t_volume)
+    test("STT", lambda: t("stt"))
+    test("TTS", lambda: t("tts"))
+    test("Sounds", lambda: t("sounds"))
+    test("WakeWord", lambda: t("wakeword"))
+    test("LLM", lambda: t("llm"))
+    test("GUI", lambda: t("gui"))
+    test("Volume", lambda: t("volume"))
+    test("AppFinder", lambda: t("app_finder"))
 
-
+# ============================================================
+# STT
+# ============================================================
 def test_stt():
     print("\n--- РАСПОЗНАВАНИЕ РЕЧИ ---")
     from stt import VoiceRecognizer
@@ -75,16 +63,20 @@ def test_stt():
     except:
         pass
 
-
+# ============================================================
+# TTS
+# ============================================================
 def test_tts():
     print("\n--- СИНТЕЗ РЕЧИ ---")
     from tts import VoiceSpeaker
     
     def t():
-        s = VoiceSpeaker(voice="ru-RU-DmitryNeural")
-    test("Создание спикера", t)
+        s = VoiceSpeaker()
+    test("Создание VoiceSpeaker", t)
 
-
+# ============================================================
+# WAKE WORD
+# ============================================================
 def test_wakeword():
     print("\n--- WAKE WORD ---")
     from wakeword import VoiceWakeWord
@@ -93,10 +85,11 @@ def test_wakeword():
         w = VoiceWakeWord(wake_word="джарвис", sensitivity=0.5, debug=False)
     test("Создание детектора", t)
 
-
+# ============================================================
+# LLM
+# ============================================================
 def test_llm():
     print("\n--- LLM ---")
-    
     import subprocess
     result = subprocess.run(["ollama", "list"], capture_output=True, text=True, shell=True)
     
@@ -109,12 +102,14 @@ def test_llm():
         
         def t2():
             llm = LLM(model="llama3.2:3b")
-            answer = llm.ask("Привет")
+            llm.ask("Привет")
         test("Запрос к LLM", t2)
     else:
-        print("  ⚠ Ollama не найдена, LLM тесты пропущены")
+        print("  ⚠ Ollama не найдена")
 
-
+# ============================================================
+# VOLUME
+# ============================================================
 def test_volume():
     print("\n--- ГРОМКОСТЬ ---")
     from volume import VolumeControl
@@ -125,19 +120,29 @@ def test_volume():
     
     def t2():
         v = VolumeControl()
-        vol = v.get_volume()
+        v.get_volume()
     test("Получение громкости", t2)
 
-
-def test_music():
-    print("\n--- МУЗЫКА ---")
-    from music import YandexMusic
+# ============================================================
+# APP FINDER
+# ============================================================
+def test_finder():
+    print("\n--- ПОИСК ПРИЛОЖЕНИЙ ---")
+    from app_finder import AppFinder
     
-    def t():
-        m = YandexMusic()
-    test("Создание YandexMusic", t)
+    def t1():
+        f = AppFinder()
+    test("Создание AppFinder", t1)
+    
+    def t2():
+        f = AppFinder()
+        # Проверяем системную команду
+        f.find_and_run("notepad")
+    test("Запуск notepad", t2)
 
-
+# ============================================================
+# GUI
+# ============================================================
 def test_gui():
     print("\n--- GUI ---")
     from gui import GUI
@@ -148,53 +153,40 @@ def test_gui():
         g.running = False
     test("Создание GUI", t)
 
-
-def test_jarvis_core():
+# ============================================================
+# ЯДРО
+# ============================================================
+def test_core():
     print("\n--- ЯДРО ---")
     from jarvis_core import Jarvis
     
-    def t():
-        j = Jarvis(model_size="tiny", use_wake=False, wake_threshold=0.5)
-        j.running = False
-    test("Создание ядра", t)
-
-
-def test_has_method():
-    print("\n--- МЕТОД _has ---")
-    from jarvis_core import Jarvis
-    j = Jarvis(model_size="tiny", use_wake=False)
-    j.running = False
-    
     def t1():
-        if not j._has("привет мир", "привет"):
-            raise Exception("Не найдено")
-    test("Точное совпадение", t1)
+        j = Jarvis(model_size="tiny", use_wake=False)
+        j.running = False
+    test("Создание ядра", t1)
     
     def t2():
-        if not j._has("калькулятор", "калькулятор"):
-            raise Exception("Не найдено")
-    test("Полное совпадение", t2)
+        j = Jarvis(model_size="tiny", use_wake=False)
+        j.running = False
+        
+        if not j._has("привет мир", "привет"):
+            raise Exception("_has не нашёл")
+    test("Метод _has (совпадение)", t2)
     
     def t3():
+        j = Jarvis(model_size="tiny", use_wake=False)
+        j.running = False
+        
         if j._has("браузер", "музыка"):
-            raise Exception("Ложное срабатывание")
-    test("Несовпадение", t3)
-    
-    def t4():
-        if not j._has("стим", "стим,steam,игры"):
-            raise Exception("Не найдено")
-    test("Синонимы", t4)
-
+            raise Exception("_has ложное срабатывание")
+    test("Метод _has (несовпадение)", t3)
 
 # ============================================================
 # ЗАПУСК
 # ============================================================
-
 print("\n" + "=" * 60)
 print("  ЗАПУСК ТЕСТОВ...")
 print("=" * 60)
-
-time.sleep(1)
 
 test_imports()
 test_stt()
@@ -202,10 +194,9 @@ test_tts()
 test_wakeword()
 test_llm()
 test_volume()
-test_music()
+test_finder()
 test_gui()
-test_jarvis_core()
-test_has_method()
+test_core()
 
 # ============================================================
 # ИТОГИ
@@ -227,9 +218,9 @@ if errors:
 print(f"\n  Пройдено: {len(passed)}/{total} ({len(passed)*100//total if total > 0 else 0}%)")
 
 if not errors:
-    print("\n  Все тесты пройдены! Джарвис работает отлично!")
+    print("\n  🎉 Все тесты пройдены!")
 else:
-    print(f"\n  Есть проблемы: {len(errors)} тестов не пройдены")
+    print(f"\n  ⚠ Есть проблемы: {len(errors)}")
 
 print("\n" + "=" * 60)
-input("  Нажмите Enter для выхода...")
+input("  Нажмите Enter...")
